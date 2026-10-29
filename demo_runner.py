@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from ema_strategy import ema_crossover_signal
 from mt5_demo_executor import (
     BASE_DIR,
     DEFAULT_MT5_PATH,
@@ -78,26 +79,6 @@ def validate_settings() -> None:
         raise ValueError("Poll interval and daily entry limit are invalid.")
     if not math.isfinite(MAX_DAILY_EQUITY_LOSS) or MAX_DAILY_EQUITY_LOSS <= 0:
         raise ValueError("Daily equity loss limit must be positive and finite.")
-
-
-def ema_crossover_signal(closes, fast: int = FAST_EMA, slow: int = SLOW_EMA) -> str:
-    """Return a signal using completed closes only: BUY, SELL or HOLD."""
-    series = pd.Series(list(closes), dtype="float64")
-    if len(series) < slow + 2:
-        return "HOLD"
-    if not series.map(lambda value: pd.notna(value) and value > 0).all():
-        raise ValueError("EMA input contains invalid close prices")
-
-    fast_line = series.ewm(span=fast, adjust=False).mean()
-    slow_line = series.ewm(span=slow, adjust=False).mean()
-    previous = float(fast_line.iloc[-2] - slow_line.iloc[-2])
-    current = float(fast_line.iloc[-1] - slow_line.iloc[-1])
-
-    if previous <= 0 and current > 0:
-        return "BUY"
-    if previous >= 0 and current < 0:
-        return "SELL"
-    return "HOLD"
 
 
 def calculate_protective_prices(direction: str, quote: dict, info,
