@@ -14,6 +14,7 @@ import math
 import os
 import sqlite3
 import time
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -447,6 +448,85 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
         }
 
 
+RUNNER_LOCK_FILE = BASE_DIR / "data" / "demo_runner.lock"
+
+
+class SingleInstanceLock:
+    """Prevent two local runner processes from managing the same symbol."""
+
+    _guard = threading.Lock()
+    _held_paths: set[str] = set()
+
+    def __init__(self, path=RUNNER_LOCK_FILE):
+        self.path = Path(path)
+        self.handle = None
+        self.key = str(self.path.resolve())
+        self.locked = False
+
+    def acquire(self):
+        with self._guard:
+            if self.key in self._held_paths:
+                raise DemoExecutionError(
+                    "Another demo_runner instance is already running."
+                )
+            self._held_paths.add(self.key)
+
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.handle = self.path.open("a+b")
+            self.handle.seek(0, os.SEEK_END)
+            if self.handle.tell() == 0:
+                self.handle.write(b"\\0")
+                self.handle.flush()
+            self.handle.seek(0)
+
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            self.locked = True
+            return self
+        except Exception as exc:
+            if self.handle is not None:
+                self.handle.close()
+                self.handle = None
+            with self._guard:
+                self._held_paths.discard(self.key)
+            if isinstance(exc, DemoExecutionError):
+                raise
+            raise DemoExecutionError(
+                "Could not acquire runner lock; another instance may be active."
+            ) from exc
+
+    def release(self):
+        try:
+            if self.handle is not None:
+                if self.locked:
+                    self.handle.seek(0)
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+                self.handle.close()
+        finally:
+            self.handle = None
+            self.locked = False
+            with self._guard:
+                self._held_paths.discard(self.key)
+
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.release()
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="M15 EMA-crossover integration runner, MT5 demo-only."
@@ -472,59 +552,88 @@ def main() -> int:
         print("ERROR: MetaTrader5 package is unavailable.")
         return 2
 
-    init_state_db()
-    path = os.environ.get("MT5_PATH", DEFAULT_MT5_PATH)
-    if not Path(path).is_file():
-        print(f"ERROR: MT5 terminal not found: {path}")
-        return 2
-    if not mt5.initialize(path=path, timeout=15000):
-        print("ERROR: MT5 initialization failed:", mt5.last_error())
-        return 2
-
-    executor = MT5DemoExecutor(mt5, DemoConfig.from_env())
+    lock = SingleInstanceLock()
     try:
-        status = executor.preflight()
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)sZ %(levelname)s %(message)s",
-        )
-        logging.info(
-            "Demo runner starting: server=%s mode=%s orders_enabled=%s "
-            "strategy=EMA(%s,%s) symbol=%s timeframe=%s",
-            status["server"], status["account_mode"], status["orders_enabled"],
-            FAST_EMA, SLOW_EMA, SYMBOL, TIMEFRAME_LABEL,
-        )
-        logging.info(
-            "Example settings only: lots=%s SL=%s pips TP=%s pips "
-            "max_entries/day=%s max_daily_equity_loss=%s %s",
-            VOLUME_LOTS, STOP_LOSS_PIPS, TAKE_PROFIT_PIPS,
-            MAX_ENTRIES_PER_UTC_DAY, MAX_DAILY_EQUITY_LOSS,
-            getattr(mt5.account_info(), "currency", ""),
-        )
-
-        while True:
-            try:
-                report = process_latest_bar(mt5, executor)
-                logging.info("Cycle: %s", json.dumps(report, default=str))
-            except OrderResultUncertain:
-                logging.exception(
-                    "HALTING: order state uncertain. Reconcile MT5 manually; "
-                    "do not restart the runner until resolved."
-                )
-                return 3
-            except DemoExecutionError:
-                logging.exception("HALTING: safety/preflight check failed.")
-                return 2
-
-            if not args.loop:
-                return 0
-            time.sleep(POLL_SECONDS)
-
+        lock.acquire()
     except DemoExecutionError as exc:
-        logging.error("Startup preflight failed: %s", exc)
+        print(f"RUNNER LOCK FAILED: {exc}")
         return 2
+
+    initialized = False
+    try:
+        init_state_db()
+        path = os.environ.get("MT5_PATH", DEFAULT_MT5_PATH)
+        if not Path(path).is_file():
+            print(f"ERROR: MT5 terminal not found: {path}")
+            return 2
+        if not mt5.initialize(path=path, timeout=15000):
+            print("ERROR: MT5 initialization failed:", mt5.last_error())
+            return 2
+        initialized = True
+
+        executor = MT5DemoExecutor(mt5, DemoConfig.from_env())
+        try:
+            status = executor.preflight()
+            account = mt5.account_info()
+            if account is None:
+                raise DemoExecutionError(
+                    f"MT5 account information unavailable: {mt5.last_error()}"
+                )
+            # Establish the UTC-day baseline before waiting for a signal.
+            daily_limits(STATE_DB, float(account.equity))
+
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)sZ %(levelname)s %(message)s",
+            )
+            logging.info(
+                "Demo runner starting: server=%s mode=%s orders_enabled=%s "
+                "strategy=EMA(%s,%s) symbol=%s timeframe=%s",
+                status["server"], status["account_mode"], status["orders_enabled"],
+                FAST_EMA, SLOW_EMA, SYMBOL, TIMEFRAME_LABEL,
+            )
+            logging.info(
+                "Example settings only: lots=%s SL=%s pips TP=%s pips "
+                "max_entries/day=%s max_daily_equity_loss=%s %s",
+                VOLUME_LOTS, STOP_LOSS_PIPS, TAKE_PROFIT_PIPS,
+                MAX_ENTRIES_PER_UTC_DAY, MAX_DAILY_EQUITY_LOSS,
+                account.currency,
+            )
+
+            while True:
+                try:
+                    current_account = mt5.account_info()
+                    if current_account is None:
+                        raise DemoExecutionError(
+                            f"MT5 account information unavailable: {mt5.last_error()}"
+                        )
+                    # Create a daily baseline on the first observation of each
+                    # UTC date, even when there is no crossover signal.
+                    daily_limits(STATE_DB, float(current_account.equity))
+
+                    report = process_latest_bar(mt5, executor)
+                    logging.info("Cycle: %s", json.dumps(report, default=str))
+                except OrderResultUncertain:
+                    logging.exception(
+                        "HALTING: order state uncertain. Reconcile MT5 manually; "
+                        "do not restart the runner until resolved."
+                    )
+                    return 3
+                except DemoExecutionError:
+                    logging.exception("HALTING: safety/preflight check failed.")
+                    return 2
+
+                if not args.loop:
+                    return 0
+                time.sleep(POLL_SECONDS)
+
+        except DemoExecutionError as exc:
+            logging.error("Startup preflight failed: %s", exc)
+            return 2
     finally:
-        mt5.shutdown()
+        if initialized:
+            mt5.shutdown()
+        lock.release()
 
 
 if __name__ == "__main__":
