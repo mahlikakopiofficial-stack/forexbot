@@ -51,6 +51,10 @@ class DemoConfig:
     def from_env(cls) -> "DemoConfig":
         enabled = os.environ.get("MT5_DEMO_ORDER_ENABLED", "").strip()
         login_text = os.environ.get("MT5_DEMO_LOGIN", "").strip()
+        selected_symbol = os.environ.get(
+            "FOREX_SYMBOL",
+            os.environ.get("FOREX_DEMO_SYMBOL", "EURUSD"),
+        ).strip()
         return cls(
             expected_server=os.environ.get(
                 "MT5_DEMO_SERVER", "XMGlobal-MT5 2"
