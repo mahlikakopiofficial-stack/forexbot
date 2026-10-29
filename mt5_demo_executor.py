@@ -256,20 +256,19 @@ class MT5DemoExecutor:
         if trade_mode == disabled:
             raise DemoExecutionError(f"Trading is disabled for {symbol}")
 
-        # This project stores and backtests EURUSD OHLC as Bid prices.
-        # Refuse an unverified or Last-based chart instead of applying the
-        # wrong bid/ask spread model.
-        if symbol == "EURUSD":
+        # Both allowlisted EURUSD variants must expose Bid-based bars because
+        # the historical cost model uses Bid OHLC and an approximate spread.
+        if symbol in SUPPORTED_SYMBOLS:
             bid_mode = getattr(self.api, "SYMBOL_CHART_MODE_BID", None)
             chart_mode = getattr(info, "chart_mode", None)
             if bid_mode is None or chart_mode is None:
                 raise DemoExecutionError(
-                    "Cannot verify EURUSD chart mode; Bid-based history "
+                    f"Cannot verify {symbol} chart mode; Bid-based history "
                     "assumption is unverified."
                 )
             if chart_mode != bid_mode:
                 raise DemoExecutionError(
-                    "EURUSD chart mode is not Bid-based; this project requires "
+                    f"{symbol} chart mode is not Bid-based; this project requires "
                     "Bid-based bars for its current backtest cost model."
                 )
         return info
