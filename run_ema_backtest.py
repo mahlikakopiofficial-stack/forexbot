@@ -66,7 +66,9 @@ def main() -> int:
 
     result["strategy_rules"] = (
         f"EMA({args.fast},{args.slow}) crossover on completed closes; "
-        "signal fills on the next candle open."
+        "signal fills on the next candle open; "
+        f"stop-loss={args.stop_loss_pips} pips; "
+        f"take-profit={args.take_profit_pips} pips."
     )
     output_dir = args.output_dir or f"reports/ema_{args.fast}_{args.slow}"
     paths = write_report(result, output_dir=output_dir)
