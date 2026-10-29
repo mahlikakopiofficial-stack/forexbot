@@ -84,6 +84,25 @@ before interpreting results. The executor never switches accounts; the order
 gate remains disabled unless the explicit token documented below is set.
 Preflight and diagnostics do not submit orders.
 
+## Fixed-parameter walk-forward check
+
+After the chronological split report, run the fixed EMA settings through five
+sequential test windows. Each window uses only prior candles to warm up the
+EMA; the warm-up section cannot open positions. Each fold is an independent
+virtual-balance simulation, and the report shows returns by window rather than
+pretending these are one compounded account.
+
+```powershell
+$env:FOREX_SYMBOL = "EURUSD#"
+python .\\walk_forward_ema.py --fast 12 --slow 26 --folds 5
+```
+
+Reports are saved to `reports/ema_walk_forward_12_26`. Keep EMA parameters fixed
+during this diagnostic; do not choose settings simply because one fold looks
+good. A small number of profitable folds or a high pooled profit factor would
+still not establish a durable edge. The dataset is short and its spread model
+is approximate, so this remains exploratory paper research.
+
 ## Chronological strategy evaluation
 
 After verifying the dry-run connection, evaluate the fixed example EMA settings
