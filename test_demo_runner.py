@@ -7,6 +7,7 @@ from demo_runner import (
     calculate_protective_prices,
     DemoExecutionError,
     SingleInstanceLock,
+    decide_existing_position_action,
     ema_crossover_signal,
     init_state_db,
     record_event,
@@ -85,3 +86,21 @@ def test_runner_lock_prevents_second_instance_and_releases(tmp_path):
 
     with SingleInstanceLock(lock_path):
         pass
+
+
+
+@pytest.mark.parametrize(
+    ("signal", "direction", "expected"),
+    [
+        ("HOLD", "BUY", "HOLD"),
+        ("HOLD", "SELL", "HOLD"),
+        ("BUY", "BUY", "HOLD"),
+        ("SELL", "SELL", "HOLD"),
+        ("SELL", "BUY", "CLOSE_BUY"),
+        ("BUY", "SELL", "CLOSE_SELL"),
+    ],
+)
+def test_existing_position_is_only_closed_on_opposite_signal(
+    signal, direction, expected
+):
+    assert decide_existing_position_action(signal, direction) == expected
