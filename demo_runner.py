@@ -267,6 +267,19 @@ def position_direction(position, api) -> str:
     return "SELL"
 
 
+def decide_existing_position_action(signal: str, current_direction: str) -> str:
+    """Keep a position through HOLD/same-direction signals; close on reversal."""
+    signal = signal.upper().strip()
+    current_direction = current_direction.upper().strip()
+    if signal not in {"BUY", "SELL", "HOLD"}:
+        raise ValueError(f"Invalid signal for position management: {signal}")
+    if current_direction not in {"BUY", "SELL"}:
+        raise ValueError(f"Invalid existing position direction: {current_direction}")
+    if signal == "HOLD" or signal == current_direction:
+        return "HOLD"
+    return f"CLOSE_{current_direction}"
+
+
 def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
     init_state_db(path)
     pending = unresolved_events(path)
@@ -359,10 +372,14 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
             )
 
         current_direction = position_direction(current_position, api)
-        if signal == current_direction:
+        action = decide_existing_position_action(signal, current_direction)
+        if action == "HOLD":
             state_set("last_processed_candle_utc", latest_time, path)
-            return {"status": "POSITION_HELD", "candle_time_utc": latest_time, "signal": signal}
-        action = f"CLOSE_{current_direction}"
+            return {
+                "status": "POSITION_HELD",
+                "candle_time_utc": latest_time,
+                "signal": signal,
+            }
     else:
         if daily_loss >= MAX_DAILY_EQUITY_LOSS:
             record_event(
