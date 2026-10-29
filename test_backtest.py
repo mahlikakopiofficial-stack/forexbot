@@ -204,6 +204,7 @@ def test_stop_loss_wins_when_both_buy_barriers_touched():
     assert result["trade_count"] == 1
     assert result["trades"][0]["reason"] == "STOP_LOSS"
     assert result["trades"][0]["exit_price"] == pytest.approx(1.1000)
+    assert result["trades"][0]["exit_time"] == data["time_utc"].iloc[2]
     assert result["assumptions"]["stop_loss_pips"] == 2
     assert result["assumptions"]["take_profit_pips"] == 4
 
