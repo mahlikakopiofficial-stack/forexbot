@@ -19,7 +19,9 @@ MT5_PATH = os.environ.get(
 SYMBOL = os.environ.get("FOREX_SYMBOL", "EURUSD").strip()
 TIMEFRAME_NAME = "M15"
 TIMEFRAME = mt5.TIMEFRAME_M15
-HISTORY_COUNT = 5000
+# About 20,000 M15 candles provides several more months of history.
+# Override locally with FOREX_HISTORY_BARS if the MT5 terminal has fewer bars available.
+HISTORY_COUNT = int(os.environ.get("FOREX_HISTORY_BARS", "20000"))
 
 # Observed XM server schedule: GMT+2 in winter, GMT+3 in summer.
 SERVER_TZ = ZoneInfo("Europe/Athens")
@@ -57,6 +59,11 @@ def to_utc(raw_timestamp):
 
 
 def main():
+    if not 100 <= HISTORY_COUNT <= 100000:
+        raise SystemExit(
+            "FOREX_HISTORY_BARS must be an integer between 100 and 100000"
+        )
+
     if not DB_FILE.is_file():
         raise SystemExit(f"Database not found: {DB_FILE}")
 
