@@ -184,6 +184,50 @@ def close_position(position, bar, exit_time, point_size,
     }
 
 
+def intrabar_exit(position, bar, point_size):
+    """Resolve broker SL/TP conservatively from one completed Bid OHLC bar.
+
+    A bar cannot reveal the order in which its high/low occurred. If both
+    barriers were touched in the same bar, assume the stop-loss happened first.
+    For SELLs, Ask OHLC is approximated as Bid OHLC plus that bar's spread.
+    Returned time is the candle label; exact intrabar fill time is unavailable.
+    """
+    if position.get("stop_loss") is None or position.get("take_profit") is None:
+        return None
+
+    bid_open = float(bar["open"])
+    bid_high = float(bar["high"])
+    bid_low = float(bar["low"])
+    spread_price = float(bar["spread"]) * point_size
+    side = position["side"]
+    stop_price = float(position["stop_loss"])
+    target_price = float(position["take_profit"])
+
+    if side == "BUY":
+        stop_hit = bid_low <= stop_price
+        target_hit = bid_high >= target_price
+        if stop_hit:
+            # If the bar opened through the stop, approximate a gap fill at open.
+            return min(bid_open, stop_price), "STOP_LOSS"
+        if target_hit:
+            # A favorable gap may fill at the open, otherwise at the target.
+            return max(bid_open, target_price), "TAKE_PROFIT"
+    else:
+        ask_open = bid_open + spread_price
+        ask_high = bid_high + spread_price
+        ask_low = bid_low + spread_price
+        stop_hit = ask_high >= stop_price
+        target_hit = ask_low <= target_price
+        if stop_hit:
+            exit_ask = max(ask_open, stop_price)
+            return exit_ask - spread_price, "STOP_LOSS"
+        if target_hit:
+            exit_ask = min(ask_open, target_price)
+            return exit_ask - spread_price, "TAKE_PROFIT"
+
+    return None
+
+
 def run_backtest(
     history,
     strategy,
@@ -192,6 +236,8 @@ def run_backtest(
     point_size=POINT_SIZE,
     slippage_points=1.0,
     commission_per_side=0.0,
+    stop_loss_pips=None,
+    take_profit_pips=None,
 ):
     """
     Generic, single-position paper backtester.
@@ -210,6 +256,12 @@ def run_backtest(
         point_size = float(point_size)
         slippage_points = float(slippage_points)
         commission_per_side = float(commission_per_side)
+        stop_loss_pips = (
+            None if stop_loss_pips is None else float(stop_loss_pips)
+        )
+        take_profit_pips = (
+            None if take_profit_pips is None else float(take_profit_pips)
+        )
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("Backtest numeric settings must be valid numbers") from exc
 
@@ -226,6 +278,18 @@ def run_backtest(
 
     if not math.isfinite(commission_per_side) or commission_per_side < 0:
         raise ValueError("commission must be finite and nonnegative")
+
+    if (stop_loss_pips is None) != (take_profit_pips is None):
+        raise ValueError("stop_loss_pips and take_profit_pips must be set together")
+    if stop_loss_pips is not None:
+        if (
+            not math.isfinite(stop_loss_pips)
+            or not math.isfinite(take_profit_pips)
+            or stop_loss_pips <= 0
+            or take_profit_pips <= 0
+        ):
+            raise ValueError("Stop-loss and take-profit pips must be finite and positive")
+    pip_size = point_size * 10 if point_size < 0.0001 else point_size
 
     if not callable(strategy):
         raise ValueError("strategy must be a callable function")
@@ -290,6 +354,32 @@ def run_backtest(
                         "entry_slippage_cost": (
                             slippage_points * point_size * units
                         ),
+                        "stop_loss": (
+                            (
+                                float(bar["open"])
+                                + float(bar["spread"]) * point_size
+                                if signal == "BUY" else float(bar["open"])
+                            ) - stop_loss_pips * pip_size
+                            if signal == "BUY" and stop_loss_pips is not None
+                            else (
+                                float(bar["open"]) + stop_loss_pips * pip_size
+                                if signal == "SELL" and stop_loss_pips is not None
+                                else None
+                            )
+                        ),
+                        "take_profit": (
+                            (
+                                float(bar["open"])
+                                + float(bar["spread"]) * point_size
+                                if signal == "BUY" else float(bar["open"])
+                            ) + take_profit_pips * pip_size
+                            if signal == "BUY" and take_profit_pips is not None
+                            else (
+                                float(bar["open"]) - take_profit_pips * pip_size
+                                if signal == "SELL" and take_profit_pips is not None
+                                else None
+                            )
+                        ),
                     }
 
         else:
@@ -320,6 +410,25 @@ def run_backtest(
         # Mark open positions at the current candle's close using
         # a hypothetical executable exit price.
         unrealized = 0.0
+
+        if position is not None:
+            barrier = intrabar_exit(position, bar, point_size)
+            if barrier is not None:
+                exit_bid, reason = barrier
+                exit_bar = dict(bar)
+                exit_bar["open"] = exit_bid
+                trade = close_position(
+                    position=position,
+                    bar=exit_bar,
+                    exit_time=event_time,
+                    point_size=point_size,
+                    slippage_points=slippage_points,
+                    commission_per_side=commission_per_side,
+                    reason=reason,
+                )
+                trades.append(trade)
+                balance += trade["net_pnl_usd"]
+                position = None
 
         if position is not None:
             exit_side = (
@@ -459,6 +568,12 @@ def run_backtest(
                 "direction-specific bid/ask approximation from MT5 bar spread; "
                 "not exact historical tick execution"
             ),
+            "stop_loss_pips": stop_loss_pips,
+            "take_profit_pips": take_profit_pips,
+            "intrabar_barrier_model": (
+                "Bid OHLC for BUY; Ask approximated as Bid plus per-bar spread "
+                "for SELL; stop loss wins if stop and target are both touched"
+            ) if stop_loss_pips is not None else None,
         },
         "trades": trades,
         "equity_curve": equity_curve,
