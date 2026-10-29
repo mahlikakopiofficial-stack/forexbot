@@ -117,6 +117,7 @@ fills. These require an explicit manual check in the demo terminal.
 - `python .\sync_history.py` — synchronizes closed MT5 candles into the
   historical database.
 - `python .\backtest.py audit` — validates the local stored historical data.
+- `python .\\run_ema_backtest.py --fast 12 --slow 26` — runs a historical paper simulation of the same EMA signal used by the demo runner and writes summary, trades and equity-curve files under `reports\\ema_12_26`.
 - `python .\smoke_backtest.py` — no-trade backtest pipeline smoke test.
 - `python -m pytest -q` — full automated unit tests.
 
