@@ -134,3 +134,53 @@ def test_numeric_parameters_are_normalized_and_nonfinite_costs_rejected():
             strategy=lambda history: "HOLD",
             slippage_points=float("inf"),
         )
+
+
+
+def test_bid_bar_buy_pays_spread_at_entry_not_exit():
+    data = synthetic_history()
+    data.loc[1, "spread"] = 10
+    data.loc[3, "spread"] = 30
+
+    def strategy(history):
+        if len(history) == 1:
+            return "BUY"
+        if len(history) == 3:
+            return "EXIT"
+        return "HOLD"
+
+    result = run_backtest(
+        data, strategy=strategy, starting_balance=2000,
+        units=1000, slippage_points=0, commission_per_side=0,
+    )
+
+    trade = result["trades"][0]
+    assert trade["entry_price"] == pytest.approx(1.1002 + 0.0001)
+    assert trade["exit_price"] == pytest.approx(1.1012)
+    assert trade["spread_cost_usd"] == pytest.approx(0.10)
+    assert trade["net_pnl_usd"] == pytest.approx(0.90)
+    assert result["assumptions"]["price_basis"] == "bid"
+
+
+def test_bid_bar_sell_pays_spread_when_buying_back():
+    data = synthetic_history()
+    data.loc[1, "spread"] = 10
+    data.loc[3, "spread"] = 30
+
+    def strategy(history):
+        if len(history) == 1:
+            return "SELL"
+        if len(history) == 3:
+            return "EXIT"
+        return "HOLD"
+
+    result = run_backtest(
+        data, strategy=strategy, starting_balance=2000,
+        units=1000, slippage_points=0, commission_per_side=0,
+    )
+
+    trade = result["trades"][0]
+    assert trade["entry_price"] == pytest.approx(1.1002)
+    assert trade["exit_price"] == pytest.approx(1.1012 + 0.0003)
+    assert trade["spread_cost_usd"] == pytest.approx(0.30)
+    assert trade["net_pnl_usd"] == pytest.approx(-1.30)
