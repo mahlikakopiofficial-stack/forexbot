@@ -37,9 +37,14 @@ python -m pip install -r requirements.txt
 python -m pytest -q
 ```
 
-The local SQLite databases and downloaded market history are intentionally
-excluded by `.gitignore`. Keep your existing `data\forex_lab.db` and do not
-delete it when updating the source.
+The local SQLite databases, downloaded market history, and runner lock file
+are intentionally excluded by `.gitignore`. Keep your existing
+`data\\forex_lab.db` and do not delete it when updating the source.
+
+The historical backtester assumes EURUSD bars are Bid-based. The executor
+checks the connected MT5 symbol chart mode and refuses a Last-based or
+unverifiable chart. Historical per-bar spread is an approximation, not a
+tick-by-tick reconstruction, so simulated costs are not exact fills.
 
 ## Read-only MT5 preflight
 
@@ -93,9 +98,12 @@ only evaluates a newly completed M15 candle, and uses an illustrative EMA(12,
 26) crossover with 0.01-lot volume, 20-pip stop and 40-pip target defaults.
 These defaults are for integration testing and are not performance-validated.
 The runner also defaults to at most three entries per UTC day and a daily
-equity-loss block in the account's currency. An uncertain order state causes
-a hard stop; inspect the MT5 terminal/History and the local execution ledger
-before restarting.
+equity-loss block in the account's currency. The daily equity baseline is
+recorded when the runner first observes each UTC date; this is not a
+broker-enforced stop-loss. A single-instance operating-system lock prevents
+two local runners from managing the same symbol simultaneously. An uncertain
+order state causes a hard stop; inspect the MT5 terminal/History and the local
+execution ledger before restarting.
 
 The broker can reject orders due to execution mode, margin, market status,
 volume limits, SL/TP rules or other server-side conditions. A passing unit test
