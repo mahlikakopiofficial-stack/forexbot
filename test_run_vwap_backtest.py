@@ -9,7 +9,7 @@ from vwap_strategy import vwap_crossover_signals
 
 
 def synthetic_history(rows=20):
-    times = pd.date_range("2026-10-28T08:00:00Z", periods=rows, freq="15min")
+    times = pd.date_range("2026-10-28T08:00:00Z", periods=rows, freq="5min")
     pattern = [1.100, 1.099, 1.098, 1.102, 1.103, 1.097, 1.096, 1.104, 1.105, 1.095]
     closes = (pattern * ((rows + len(pattern) - 1) // len(pattern)))[:rows]
     opens = [closes[0], *closes[:-1]]
@@ -34,7 +34,7 @@ def test_strategy_callback_is_causal_and_aligns_to_history_prefix():
 
 
 def test_vwap_paper_backtest_can_take_long_and_short_sides():
-    data = synthetic_history(20)
+    data = synthetic_history(250)
     strategy = make_vwap_strategy(data)
     result = run_backtest(
         data, strategy=strategy, starting_balance=1000, units=50,
