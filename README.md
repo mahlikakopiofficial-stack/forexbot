@@ -1,6 +1,6 @@
 # Forex Research / MT5 Demo Lab
 
-This repository is an educational EURUSD M15 research project. It contains
+This repository is an educational M15 research project for a selected broker symbol (initially EURUSD). It contains
 historical-data utilities, a paper backtester, and a separate MT5 **demo-only**
 execution path. No profitability claim has been established.
 
@@ -16,8 +16,9 @@ execution path. No profitability claim has been established.
 - Demo order submission is **off by default**. It requires the exact opt-in
   token `MT5_DEMO_ORDER_ENABLED=YES_DEMO_ONLY`.
 - Every new market position must have broker-side stop-loss and take-profit.
-- The runner limits itself to EURUSD, one open EURUSD position, checks broker
-  volume steps, spread, stop distance and account/terminal permissions, and
+- The runner allowlists EURUSD and the broker-listed EURUSD# variant, uses the
+  single symbol selected through FOREX_SYMBOL, limits itself to one position
+  on that symbol, and checks volume, spread, stop distance and account permissions.
   persists candle/event state to prevent signal replay.
 - If an order response or post-send position check is uncertain, the runner
   halts and requires manual reconciliation in MT5 instead of retrying.
@@ -48,20 +49,40 @@ checks the connected MT5 symbol chart mode and refuses a Last-based or
 unverifiable chart. Historical per-bar spread is an approximation, not a
 tick-by-tick reconstruction, so simulated costs are not exact fills.
 
-## Read-only MT5 preflight
+## Read-only MT5 symbol diagnostic and preflight
 
-Open MT5, log in to the broker's **demo** account, select EURUSD in Market Watch,
-and ensure algorithmic trading/external Python trading is allowed. Then run:
+Open MT5 and confirm it is connected to the intended **demo** account. Run:
 
 ```powershell
-python .\mt5_demo_executor.py preflight
+python .\\diagnose_mt5_symbol.py
 ```
 
-This checks the connected terminal/account and quote. It does not submit an
-order. The configured timezone defaults to `Europe/Athens` because the earlier
-local diagnostics observed broker-clock timestamps matching that timezone.
-If the broker/server or its timestamp behavior changes, verify it before
-running the demo loop.
+The diagnostic reports exact symbol names, their trading modes, and whether a
+valid quote is available. It may select the broker-listed EURUSD candidates
+into Market Watch, but it never submits orders. In the supplied output EURUSD
+was DISABLED while EURUSD# was FULL but not selected. The diagnostic now tries
+to select that candidate and waits briefly for a valid Bid/Ask tick.
+
+Only if the diagnostic confirms EURUSD# is FULL and returns a fresh, valid
+quote, use the same symbol consistently for history, backtesting, and dry-run
+signal evaluation. In the same PowerShell session:
+
+```powershell
+$env:FOREX_SYMBOL = "EURUSD#"
+python .\\sync_history.py
+python .\\verify_store.py
+python .\\backtest.py audit
+python .\\run_ema_backtest.py --fast 12 --slow 26
+python .\\mt5_demo_executor.py preflight
+python .\\demo_runner.py --once
+```
+
+This stores EURUSD# candles separately from the existing EURUSD rows in
+`data\\forex_lab.db`. Do not compare old EURUSD history with dry-run signals
+generated from EURUSD#. Confirm the quotes and converted timestamps are fresh
+before interpreting results. The executor never switches accounts; the order
+gate remains disabled unless the explicit token documented below is set.
+Preflight and diagnostics do not submit orders.
 
 ## Dry-run runner
 
