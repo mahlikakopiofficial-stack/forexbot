@@ -27,6 +27,14 @@ def main() -> int:
     parser.add_argument("--slippage-points", type=float, default=1.0)
     parser.add_argument("--commission-per-side", type=float, default=0.0)
     parser.add_argument(
+        "--stop-loss-pips", type=float, default=20.0,
+        help="Illustrative broker-side stop distance, matched to demo runner",
+    )
+    parser.add_argument(
+        "--take-profit-pips", type=float, default=40.0,
+        help="Illustrative broker-side target distance, matched to demo runner",
+    )
+    parser.add_argument(
         "--output-dir",
         default=None,
         help="Report directory; defaults to reports/ema_FAST_SLOW",
@@ -49,6 +57,8 @@ def main() -> int:
             point_size=args.point_size,
             slippage_points=args.slippage_points,
             commission_per_side=args.commission_per_side,
+            stop_loss_pips=args.stop_loss_pips,
+            take_profit_pips=args.take_profit_pips,
         )
     except (OSError, ValueError) as exc:
         print(f"BACKTEST FAILED: {exc}")
