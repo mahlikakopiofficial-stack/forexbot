@@ -70,6 +70,32 @@ class DemoConfig:
         )
 
 
+    def validate(self) -> None:
+        if not self.expected_server:
+            raise DemoExecutionError("Expected MT5 demo server is not configured")
+        if self.expected_login is not None and int(self.expected_login) <= 0:
+            raise DemoExecutionError("Expected MT5 demo login must be positive")
+        if self.magic < 0 or self.magic > 2_147_483_647:
+            raise DemoExecutionError("MT5 magic number is outside supported range")
+        if self.deviation_points < 0 or self.deviation_points > 1000:
+            raise DemoExecutionError("MT5 deviation points must be between 0 and 1000")
+        if (
+            not math.isfinite(float(self.max_spread_points))
+            or float(self.max_spread_points) <= 0
+        ):
+            raise DemoExecutionError("Maximum spread must be finite and positive")
+        try:
+            ZoneInfo(self.server_timezone)
+        except Exception as exc:
+            raise DemoExecutionError(
+                f"Invalid MT5_SERVER_TIMEZONE {self.server_timezone!r}"
+            ) from exc
+        if not self.allowed_symbols or any(
+            symbol not in SUPPORTED_SYMBOLS for symbol in self.allowed_symbols
+        ):
+            raise DemoExecutionError("Configured symbols exceed the executor allowlist")
+
+
 def broker_timestamp_to_utc(raw_timestamp: float, timezone_name: str) -> datetime:
     """Convert the observed broker wall-clock timestamp to UTC.
 
@@ -122,8 +148,7 @@ class MT5DemoExecutor:
             raise DemoExecutionError("Expected MT5 demo server is not configured")
 
     def preflight(self) -> dict:
-        if not self.config.expected_server:
-            raise DemoExecutionError("Expected MT5 demo server is not configured")
+        self.config.validate()
 
         terminal = self.api.terminal_info()
         account = self.api.account_info()
@@ -316,8 +341,13 @@ class MT5DemoExecutor:
         except (InvalidOperation, AttributeError) as exc:
             raise DemoExecutionError("Invalid broker volume settings") from exc
 
-        if not value.is_finite() or value <= 0 or step <= 0:
-            raise DemoExecutionError("Volume must be finite and positive")
+        if (
+            not value.is_finite() or value <= 0
+            or not minimum.is_finite() or not maximum.is_finite()
+            or not step.is_finite() or minimum <= 0 or maximum < minimum
+            or step <= 0
+        ):
+            raise DemoExecutionError("Invalid or non-finite broker volume limits")
         if value < minimum or value > maximum:
             raise DemoExecutionError(
                 f"Volume {value} is outside broker limits {minimum}..{maximum}"
@@ -347,7 +377,12 @@ class MT5DemoExecutor:
         for filling in candidates:
             probe = dict(request)
             probe["type_filling"] = filling
-            checked = self.api.order_check(probe)
+            try:
+                checked = self.api.order_check(probe)
+            except Exception as exc:
+                raise DemoExecutionError(
+                    f"MT5 order_check raised an exception: {exc}"
+                ) from exc
             if checked is not None and getattr(checked, "retcode", None) == 0:
                 selected_request = probe
                 break
@@ -366,7 +401,13 @@ class MT5DemoExecutor:
         # This narrows the window in which a terminal account switch could
         # invalidate the original preflight.
         self.preflight()
-        result = self.api.order_send(selected_request)
+        try:
+            result = self.api.order_send(selected_request)
+        except Exception as exc:
+            raise OrderResultUncertain(
+                "MT5 order_send raised an exception after submission was "
+                f"attempted: {exc}. Do not retry; inspect MT5 positions/history."
+            ) from exc
         if result is None:
             raise OrderResultUncertain(
                 f"MT5 order_send returned no result: {self.api.last_error()}; "
