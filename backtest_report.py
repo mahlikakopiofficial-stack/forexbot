@@ -37,6 +37,7 @@ def write_report(result, output_dir="reports"):
     summary["mode"] = "PAPER_BACKTEST"
     summary["live_orders"] = False
     summary["strategy_rules"] = "Supplied by caller"
+    summary["assumptions"] = result.get("assumptions", {})
 
     summary_path = output_dir / "summary.json"
     trades_path = output_dir / "trades.csv"
