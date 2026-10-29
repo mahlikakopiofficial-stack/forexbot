@@ -663,9 +663,13 @@ def main() -> int:
 
     try:
         executor = MT5DemoExecutor(mt5, DemoConfig.from_env())
+        symbol = os.environ.get(
+            "FOREX_SYMBOL",
+            os.environ.get("FOREX_DEMO_SYMBOL", "EURUSD"),
+        ).strip()
         try:
             status = executor.preflight()
-            quote = executor._quote("EURUSD", enforce_spread=False)
+            quote = executor._quote(symbol, enforce_spread=False)
         except DemoExecutionError as exc:
             print(f"PREFLIGHT FAILED: {exc}")
             return 1
