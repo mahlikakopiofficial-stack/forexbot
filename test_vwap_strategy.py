@@ -35,8 +35,8 @@ def test_no_cross_returns_hold():
 
 def test_vwap_resets_at_broker_local_day_and_does_not_cross_between_days():
     times = pd.to_datetime([
-        "2026-10-28T20:45:00Z",
-        "2026-10-28T21:00:00Z",
+        "2026-10-28T21:45:00Z",
+        "2026-10-28T22:00:00Z",
     ], utc=True)
     data = history([1.100, 1.105], times=times)
     assert vwap_crossover_signals(data) == ["HOLD", "HOLD"]
