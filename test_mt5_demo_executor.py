@@ -347,3 +347,18 @@ def test_account_login_change_during_session_is_rejected():
         )
 
     assert api.send_calls == 0
+
+
+
+def test_managed_close_refuses_unreconciled_pending_orders():
+    api, executor = setup_executor()
+    api.positions.append(SimpleNamespace(
+        ticket=42, symbol="EURUSD", magic=executor.config.magic, volume=0.01,
+        type=api.POSITION_TYPE_BUY, sl=1.09, tp=1.12,
+    ))
+    api.pending.append(SimpleNamespace(ticket=99, symbol="EURUSD"))
+
+    with pytest.raises(DemoExecutionError, match="pending orders"):
+        executor.close_managed_position("EURUSD", 42)
+
+    assert api.send_calls == 0
