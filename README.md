@@ -122,6 +122,14 @@ fills. These require an explicit manual check in the demo terminal.
   historical database.
 - `python .\backtest.py audit` — validates the local stored historical data.
 - `python .\\run_ema_backtest.py --fast 12 --slow 26` — runs a historical paper simulation of the same EMA signal used by the demo runner and writes summary, trades and equity-curve files under `reports\\ema_12_26`.
+  By default this models 20-pip SL and 40-pip TP barriers from M15 OHLC;
+  when both barriers are touched within one candle, it assumes the stop happened
+  first. Short-side Ask prices are approximated as Bid plus that candle's
+  spread. These are conservative bar-based approximations, not tick-level fills.
+  The backtest defaults to 50 base-currency units and an unleveraged exposure
+  limit, so its position size is **not the same** as the demo runner's 0.01 lot.
+  Set `--units`, `--starting-balance`, `--point-size`, `--slippage-points`,
+  `--stop-loss-pips`, or `--take-profit-pips` to inspect different assumptions.
 - `python .\smoke_backtest.py` — no-trade backtest pipeline smoke test.
 - `python -m pytest -q` — full automated unit tests.
 
