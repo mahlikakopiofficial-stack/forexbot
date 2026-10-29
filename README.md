@@ -84,6 +84,26 @@ before interpreting results. The executor never switches accounts; the order
 gate remains disabled unless the explicit token documented below is set.
 Preflight and diagnostics do not submit orders.
 
+## Chronological strategy evaluation
+
+After verifying the dry-run connection, evaluate the fixed example EMA settings
+on a chronological train/holdout split. This uses the selected broker symbol's
+stored history and the paper backtest cost assumptions; it does not connect to
+MT5 or send broker orders.
+
+```powershell
+$env:FOREX_SYMBOL = "EURUSD#"
+python .\\evaluate_ema_split.py --fast 12 --slow 26 --train-fraction 0.70
+```
+
+The report is saved to `reports/ema_split_12_26`, with separate train and
+holdout metrics, trade CSVs, and equity curves. A small pre-split window is
+used only to warm up the EMA; it cannot open positions. Both sections start
+from the same virtual balance. Do not repeatedly tune EMA settings against the
+holdout results: one split is an exploratory check, not proof of a durable edge.
+Continue with paper evaluation only; this example strategy has not been proven
+profitable.
+
 ## Dry-run runner
 
 First run a single check:
