@@ -28,6 +28,7 @@ from mt5_demo_executor import (
     DemoExecutionError,
     MT5DemoExecutor,
     OrderResultUncertain,
+    SUPPORTED_SYMBOLS,
     broker_timestamp_to_utc,
     mt5,
 )
@@ -64,8 +65,11 @@ def utc_text(value: datetime | None = None) -> str:
 
 
 def validate_settings() -> None:
-    if not SYMBOL or SYMBOL != "EURUSD":
-        raise ValueError("This initial runner only permits EURUSD.")
+    if not SYMBOL or SYMBOL not in SUPPORTED_SYMBOLS:
+        supported = ", ".join(sorted(SUPPORTED_SYMBOLS))
+        raise ValueError(
+            f"Unsupported FOREX_SYMBOL {SYMBOL!r}; supported symbols: {supported}."
+        )
     if FAST_EMA < 2 or SLOW_EMA < 3 or FAST_EMA >= SLOW_EMA:
         raise ValueError("EMA settings must satisfy 2 <= fast < slow.")
     if not math.isfinite(VOLUME_LOTS) or VOLUME_LOTS <= 0:
@@ -81,6 +85,13 @@ def validate_settings() -> None:
         raise ValueError("Poll interval and daily entry limit are invalid.")
     if not math.isfinite(MAX_DAILY_EQUITY_LOSS) or MAX_DAILY_EQUITY_LOSS <= 0:
         raise ValueError("Daily equity loss limit must be positive and finite.")
+
+
+def last_processed_state_key(symbol: str) -> str:
+    """Keep each allowed symbol's first-run checkpoint independent."""
+    if not symbol:
+        raise ValueError("Symbol must be non-empty")
+    return f"last_processed_candle_utc:{symbol}"
 
 
 def calculate_protective_prices(direction: str, quote: dict, info,
@@ -317,6 +328,7 @@ def decide_existing_position_action(signal: str, current_direction: str) -> str:
 
 def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
     init_state_db(path)
+    checkpoint_key = last_processed_state_key(SYMBOL)
     pending = unresolved_events(path)
     if pending:
         raise OrderResultUncertain(
@@ -329,12 +341,12 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
         executor.config.server_timezone,
     )
     latest_time = utc_text(bars["time_utc"].iloc[-1].to_pydatetime())
-    last_processed = state_get("last_processed_candle_utc", path)
+    last_processed = state_get(checkpoint_key, path)
 
     # On the first start, anchor to the latest completed candle and do not
     # replay historical EMA crossovers into the broker.
     if last_processed is None:
-        state_set("last_processed_candle_utc", latest_time, path)
+        state_set(checkpoint_key, latest_time, path)
         return {"status": "INITIALIZED", "candle_time_utc": latest_time, "signal": "HOLD"}
 
     if latest_time <= last_processed:
@@ -389,14 +401,14 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
     positions = executor.get_positions(SYMBOL)
     if len(positions) > 1:
         raise DemoExecutionError(
-            "More than one EURUSD position exists; refusing automated management."
+            f"More than one {SYMBOL} position exists; refusing automated management."
         )
 
     current_position = positions[0] if positions else None
     if current_position is not None:
         if int(getattr(current_position, "magic", -1)) != executor.config.magic:
             raise DemoExecutionError(
-                "EURUSD has a position not owned by this runner; refusing to manage it."
+                f"{SYMBOL} has a position not owned by this runner; refusing to manage it."
             )
         if (
             float(getattr(current_position, "sl", 0) or 0) <= 0
