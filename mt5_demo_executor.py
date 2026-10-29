@@ -544,6 +544,17 @@ class MT5DemoExecutor:
                 "Refusing to close a position not owned by this bot"
             )
 
+        pending = self.api.orders_get(symbol=symbol)
+        if pending is None:
+            raise DemoExecutionError(
+                f"Could not read pending orders before close: {self.api.last_error()}"
+            )
+        if pending:
+            raise DemoExecutionError(
+                "Refusing to close while this symbol has pending orders; "
+                "inspect and reconcile them manually first."
+            )
+
         info = self._symbol_info(symbol)
         quote = self._quote(symbol, enforce_spread=False)
         volume = self._validate_volume(float(position.volume), info)
