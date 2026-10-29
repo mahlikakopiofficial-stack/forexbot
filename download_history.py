@@ -23,7 +23,7 @@ def main():
         return 2
 
     try:
-        symbol = "EURUSD"
+        symbol = os.environ.get("FOREX_SYMBOL", "EURUSD").strip()
 
         if not mt5.symbol_select(symbol, True):
             print("Could not select symbol:", mt5.last_error())
