@@ -1,34 +1,30 @@
-"""Daily session VWAP cross signals for M15 Forex candles.
+"""Rolling VWAP(200) cross signals for M5 Gold candles.
 
-Spot FX has no single centralized traded-volume tape. The VWAP here is
-weighted by the MT5 broker's tick_volume and is an approximation. Signals use
-completed closes only; execution belongs on the next candle.
+Spot gold CFDs do not expose centralized exchange volume through MT5. This
+implementation weights typical price by broker tick volume as an approximation.
+Signals use completed candles only; execution belongs on the next candle.
 """
 from __future__ import annotations
 
 import math
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 
 REQUIRED_COLUMNS = {"time_utc", "high", "low", "close", "tick_volume"}
+DEFAULT_VWAP_PERIOD = 200
 
 
-def session_vwap(
-    history: pd.DataFrame,
-    session_timezone: str = "Europe/Athens",
-) -> pd.Series:
-    """Calculate cumulative HLC3 * tick-volume VWAP, reset each broker-local day."""
+def rolling_vwap(history: pd.DataFrame, period: int = DEFAULT_VWAP_PERIOD) -> pd.Series:
+    """Return a rolling HLC3 VWAP weighted by MT5 tick volume."""
     if not isinstance(history, pd.DataFrame):
         raise ValueError("VWAP history must be a pandas DataFrame")
+    if isinstance(period, bool) or not isinstance(period, int) or period < 2:
+        raise ValueError("VWAP period must be an integer greater than or equal to 2")
+
     missing = REQUIRED_COLUMNS - set(history.columns)
     if missing:
         raise ValueError(f"VWAP history missing columns: {sorted(missing)}")
-    try:
-        ZoneInfo(session_timezone)
-    except Exception as exc:
-        raise ValueError(f"Invalid session timezone: {session_timezone!r}") from exc
 
     df = history.reset_index(drop=True).copy()
     times = pd.to_datetime(df["time_utc"], utc=True, errors="raise")
@@ -54,34 +50,28 @@ def session_vwap(
         raise ValueError("VWAP OHLC relationships are invalid")
 
     typical_price = (prices["high"] + prices["low"] + prices["close"]) / 3.0
-    session_ids = times.dt.tz_convert(session_timezone).dt.strftime("%Y-%m-%d")
     weighted_price = typical_price * volume
-    cumulative_value = weighted_price.groupby(session_ids, sort=False).cumsum()
-    cumulative_volume = volume.groupby(session_ids, sort=False).cumsum()
-    return cumulative_value.div(cumulative_volume.where(cumulative_volume > 0))
+    numerator = weighted_price.rolling(window=period, min_periods=period).sum()
+    denominator = volume.rolling(window=period, min_periods=period).sum()
+    return numerator.div(denominator.where(denominator > 0))
 
 
 def vwap_crossover_signals(
     history: pd.DataFrame,
-    session_timezone: str = "Europe/Athens",
+    period: int = DEFAULT_VWAP_PERIOD,
 ) -> list[str]:
     """Return one signal per completed candle: BUY, SELL, or HOLD."""
-    if "close" not in history.columns:
-        raise ValueError("VWAP history must contain close")
     df = history.reset_index(drop=True)
-    vwap = session_vwap(df, session_timezone=session_timezone)
+    vwap = rolling_vwap(df, period=period)
     close = pd.to_numeric(df["close"], errors="raise").astype("float64")
-    times = pd.to_datetime(df["time_utc"], utc=True, errors="raise")
-    session_ids = times.dt.tz_convert(session_timezone).dt.strftime("%Y-%m-%d")
 
     signals = ["HOLD"] * len(df)
     for i in range(1, len(df)):
-        if session_ids.iloc[i] != session_ids.iloc[i - 1]:
-            continue
         previous_vwap = vwap.iloc[i - 1]
         current_vwap = vwap.iloc[i]
         if pd.isna(previous_vwap) or pd.isna(current_vwap):
             continue
+
         previous_delta = float(close.iloc[i - 1] - previous_vwap)
         current_delta = float(close.iloc[i] - current_vwap)
         if previous_delta <= 0 and current_delta > 0:
@@ -93,8 +83,8 @@ def vwap_crossover_signals(
 
 def vwap_crossover_signal(
     history: pd.DataFrame,
-    session_timezone: str = "Europe/Athens",
+    period: int = DEFAULT_VWAP_PERIOD,
 ) -> str:
     """Return the signal for the latest completed candle in history."""
-    signals = vwap_crossover_signals(history, session_timezone)
+    signals = vwap_crossover_signals(history, period=period)
     return signals[-1] if signals else "HOLD"
