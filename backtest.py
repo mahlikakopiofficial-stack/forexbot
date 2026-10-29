@@ -10,9 +10,9 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent
 DB_FILE = BASE_DIR / "data" / "forex_lab.db"
 
-SYMBOL = os.environ.get("FOREX_SYMBOL", "EURUSD").strip()
-TIMEFRAME = "M15"
-BAR_MINUTES = 15
+SYMBOL = os.environ.get("FOREX_SYMBOL", "GOLD#").strip()
+TIMEFRAME = "M5"
+BAR_MINUTES = 5
 
 # EURUSD commonly uses 5 decimal places. Verify against the broker's
 # actual symbol point before treating historical costs as definitive.
@@ -107,9 +107,9 @@ def validate_history(df):
 
 def candle_fill(bar, side, field, point_size, slippage_points):
     """
-    Model fills from MT5 EURUSD Bid-based bars and the bar's spread estimate.
+    Model fills from MT5 Bid-based bars and the bar's spread estimate.
 
-    For Bid-based Forex candles, BUY opens at Ask (Bid + spread) and closes at
+    For Bid-based CFD candles, BUY opens at Ask (Bid + spread) and closes at
     Bid; SELL opens at Bid and closes at Ask (Bid + spread). Per-bar spread is
     only an estimate of execution-time spread, not exact historical tick data.
     """
@@ -604,7 +604,7 @@ def audit_database():
     print("Candles:", len(df))
     print("First candle UTC:", df["time_utc"].iloc[0].isoformat())
     print("Last candle UTC:", df["time_utc"].iloc[-1].isoformat())
-    print("Gaps over 15 minutes:", len(large_gaps))
+    print(f"Gaps over {BAR_MINUTES} minutes:", len(large_gaps))
 
     if not large_gaps.empty:
         print("Largest gap:", large_gaps.max())
