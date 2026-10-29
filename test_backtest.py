@@ -97,3 +97,39 @@ def test_invalid_ohlc_is_rejected():
 
     with pytest.raises(ValueError, match="Invalid OHLC"):
         validate_history(data)
+
+def test_infinite_spread_is_rejected():
+    data = synthetic_history()
+    data.loc[1, "spread"] = float("inf")
+    with pytest.raises(ValueError, match="Spread must contain finite"):
+        validate_history(data)
+
+
+def test_misaligned_m15_timestamp_is_rejected():
+    data = synthetic_history()
+    data.loc[2, "time_utc"] += pd.Timedelta(minutes=1)
+    with pytest.raises(ValueError, match="align to 15-minute"):
+        validate_history(data)
+
+
+def test_numeric_parameters_are_normalized_and_nonfinite_costs_rejected():
+    data = synthetic_history()
+    result = run_backtest(
+        data,
+        strategy=lambda history: "HOLD",
+        starting_balance="100",
+        units="50",
+        point_size="0.00001",
+        slippage_points="0",
+        commission_per_side="0",
+    )
+    assert result["starting_balance"] == pytest.approx(100.0)
+    assert result["assumptions"]["point_size"] == pytest.approx(0.00001)
+    assert result["assumptions"]["leverage_used"] is False
+
+    with pytest.raises(ValueError, match="slippage_points must be finite"):
+        run_backtest(
+            data,
+            strategy=lambda history: "HOLD",
+            slippage_points=float("inf"),
+        )
