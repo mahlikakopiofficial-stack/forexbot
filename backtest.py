@@ -106,20 +106,21 @@ def validate_history(df):
 
 def candle_fill(bar, side, field, point_size, slippage_points):
     """
-    Model a hypothetical fill from a candle's mid-price and spread.
+    Model fills from MT5 EURUSD Bid-based bars and the bar's spread estimate.
 
-    BUY executes at mid + half-spread + slippage.
-    SELL executes at mid - half-spread - slippage.
+    For Bid-based Forex candles, BUY opens at Ask (Bid + spread) and closes at
+    Bid; SELL opens at Bid and closes at Ask (Bid + spread). Per-bar spread is
+    only an estimate of execution-time spread, not exact historical tick data.
     """
     mid = float(bar[field])
     spread_points = float(bar["spread"])
-    half_spread = spread_points * point_size / 2
+    full_spread = spread_points * point_size
     slippage = slippage_points * point_size
 
     if side == "BUY":
-        fill = mid + half_spread + slippage
+        fill = mid + full_spread + slippage
     elif side == "SELL":
-        fill = mid - half_spread - slippage
+        fill = mid - slippage
     else:
         raise ValueError(f"Invalid execution side: {side}")
 
@@ -148,10 +149,13 @@ def close_position(position, bar, exit_time, point_size,
         (exit_mid - position["entry_mid"]) * units * sign
     )
 
-    spread_cost = (
-        position["entry_spread_half_cost"]
-        + float(bar["spread"]) * point_size / 2 * units
+    # With Bid-based bars, long entries pay spread at entry; short entries
+    # pay spread at exit when buying back at Ask.
+    exit_spread_cost = (
+        float(bar["spread"]) * point_size * units
+        if exit_side == "BUY" else 0.0
     )
+    spread_cost = position["entry_spread_cost"] + exit_spread_cost
 
     slippage_cost = (
         position["entry_slippage_cost"]
@@ -279,9 +283,9 @@ def run_backtest(
                         "entry_commission": float(
                             commission_per_side
                         ),
-                        "entry_spread_half_cost": (
-                            float(bar["spread"])
-                            * point_size / 2 * units
+                        "entry_spread_cost": (
+                            float(bar["spread"]) * point_size * units
+                            if signal == "BUY" else 0.0
                         ),
                         "entry_slippage_cost": (
                             slippage_points * point_size * units
@@ -347,13 +351,14 @@ def run_backtest(
         exit_mid = float(last["close"])
         side = "SELL" if position["side"] == "BUY" else "BUY"
 
-        spread = float(last["spread"]) * point_size / 2
+        full_spread = float(last["spread"]) * point_size
         slip = slippage_points * point_size
 
+        # Match the bid-based executable quote approximation.
         exit_fill = (
-            exit_mid - spread - slip
+            exit_mid - slip
             if side == "SELL"
-            else exit_mid + spread + slip
+            else exit_mid + full_spread + slip
         )
 
         sign = 1 if position["side"] == "BUY" else -1
@@ -364,10 +369,8 @@ def run_backtest(
             * units_open * sign
         )
 
-        spread_cost = (
-            position["entry_spread_half_cost"]
-            + spread * units_open
-        )
+        exit_spread_cost = full_spread * units_open if side == "BUY" else 0.0
+        spread_cost = position["entry_spread_cost"] + exit_spread_cost
 
         slippage_cost = (
             position["entry_slippage_cost"]
@@ -451,6 +454,11 @@ def run_backtest(
             "max_open_positions": 1,
             "leverage_used": False,
             "fill_timing": "next_candle_open",
+            "price_basis": "bid",
+            "spread_model": (
+                "direction-specific bid/ask approximation from MT5 bar spread; "
+                "not exact historical tick execution"
+            ),
         },
         "trades": trades,
         "equity_curve": equity_curve,
