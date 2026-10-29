@@ -368,11 +368,11 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
             raise OrderResultUncertain(
                 f"Event {event_key} has unresolved state {existing[0]}"
             )
-        state_set("last_processed_candle_utc", latest_time, path)
+        state_set(checkpoint_key, latest_time, path)
         return {"status": "ALREADY_RECORDED", "candle_time_utc": latest_time, "signal": signal}
 
     if signal == "HOLD":
-        state_set("last_processed_candle_utc", latest_time, path)
+        state_set(checkpoint_key, latest_time, path)
         return {"status": "NO_SIGNAL", "candle_time_utc": latest_time, "signal": signal}
 
     status = executor.preflight()
@@ -395,7 +395,7 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
             },
             path,
         )
-        state_set("last_processed_candle_utc", latest_time, path)
+        state_set(checkpoint_key, latest_time, path)
         return {"status": "DRY_RUN", "candle_time_utc": latest_time, "signal": signal}
 
     positions = executor.get_positions(SYMBOL)
@@ -421,7 +421,7 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
         current_direction = position_direction(current_position, api)
         action = decide_existing_position_action(signal, current_direction)
         if action == "HOLD":
-            state_set("last_processed_candle_utc", latest_time, path)
+            state_set(checkpoint_key, latest_time, path)
             return {
                 "status": "POSITION_HELD",
                 "candle_time_utc": latest_time,
@@ -434,7 +434,7 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
                 {"reason": "daily equity loss limit reached", "daily_loss": daily_loss},
                 path,
             )
-            state_set("last_processed_candle_utc", latest_time, path)
+            state_set(checkpoint_key, latest_time, path)
             return {"status": "DAILY_LOSS_LIMIT", "candle_time_utc": latest_time, "signal": signal}
         if entries_count >= MAX_ENTRIES_PER_UTC_DAY:
             record_event(
@@ -442,7 +442,7 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
                 {"reason": "daily entry limit reached", "entries_count": entries_count},
                 path,
             )
-            state_set("last_processed_candle_utc", latest_time, path)
+            state_set(checkpoint_key, latest_time, path)
             return {"status": "DAILY_ENTRY_LIMIT", "candle_time_utc": latest_time, "signal": signal}
         action = f"OPEN_{signal}"
 
@@ -465,7 +465,7 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
             increment_daily_entries(path)
 
         record_event(event_key, latest_time, action, "COMPLETED", result, path)
-        state_set("last_processed_candle_utc", latest_time, path)
+        state_set(checkpoint_key, latest_time, path)
         return {
             "status": "ORDER_COMPLETED",
             "candle_time_utc": latest_time,
@@ -484,7 +484,7 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
             event_key, latest_time, action, "REJECTED",
             {"error": str(exc)}, path,
         )
-        state_set("last_processed_candle_utc", latest_time, path)
+        state_set(checkpoint_key, latest_time, path)
         return {
             "status": "ORDER_REJECTED",
             "candle_time_utc": latest_time,
