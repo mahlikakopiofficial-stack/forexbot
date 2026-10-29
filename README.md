@@ -10,7 +10,9 @@ execution path. No profitability claim has been established.
   account already open in the MT5 desktop terminal.
 - The order executor refuses any account that is not reported by MT5 as DEMO.
 - The expected server defaults to `XMGlobal-MT5 2`; an exact server mismatch
-  stops the program.
+  stops the program. The executor also pins the first verified account login
+  for the current process; `MT5_DEMO_LOGIN` can optionally require a specific
+  demo login without sharing that login in chat.
 - Demo order submission is **off by default**. It requires the exact opt-in
   token `MT5_DEMO_ORDER_ENABLED=YES_DEMO_ONLY`.
 - Every new market position must have broker-side stop-loss and take-profit.
@@ -89,6 +91,8 @@ and explicit demo-only token:
 
 ```powershell
 $env:MT5_DEMO_SERVER = "XMGlobal-MT5 2"
+# Optional: set your own demo login locally to lock to that account.
+# $env:MT5_DEMO_LOGIN = "YOUR_DEMO_LOGIN"
 $env:MT5_DEMO_ORDER_ENABLED = "YES_DEMO_ONLY"
 python .\demo_runner.py --once
 ```
