@@ -1,20 +1,16 @@
-"""Historical M15 session-VWAP crossover paper backtest.
-
-The strategy uses MT5 tick volume as a proxy for Forex activity. No broker
-connection or live orders are used by this script.
-"""
+"""Historical Gold M5 rolling-VWAP(200) paper backtest; sends no orders."""
 import argparse
 import os
 from pathlib import Path
 
-from backtest import POINT_SIZE, load_history, run_backtest
+from backtest import load_history, run_backtest
 from backtest_report import write_report
-from vwap_strategy import vwap_crossover_signals
+from vwap_strategy import DEFAULT_VWAP_PERIOD, vwap_crossover_signals
 
 
-def make_vwap_strategy(history, session_timezone="Europe/Athens"):
-    """Precompute causal signals once, then adapt them to backtest prefixes."""
-    signals = vwap_crossover_signals(history, session_timezone=session_timezone)
+def make_vwap_strategy(history, period=DEFAULT_VWAP_PERIOD):
+    """Precompute causal rolling-VWAP signals and adapt them to history prefixes."""
+    signals = vwap_crossover_signals(history, period=period)
 
     def strategy(history_so_far):
         index = len(history_so_far) - 1
@@ -27,24 +23,23 @@ def make_vwap_strategy(history, session_timezone="Europe/Athens"):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--starting-balance", type=float, default=100.0)
-    parser.add_argument("--units", type=float, default=50.0)
-    parser.add_argument("--point-size", type=float, default=POINT_SIZE)
+    parser.add_argument("--starting-balance", type=float, default=5000.0)
+    parser.add_argument("--units", type=float, default=1.0)
+    parser.add_argument("--point-size", type=float, default=float(os.environ.get("FOREX_POINT_SIZE", "0.01")))
     parser.add_argument("--slippage-points", type=float, default=1.0)
     parser.add_argument("--commission-per-side", type=float, default=0.0)
-    parser.add_argument("--stop-loss-pips", type=float, default=20.0)
-    parser.add_argument("--take-profit-pips", type=float, default=40.0)
-    parser.add_argument(
-        "--session-timezone",
-        default=os.environ.get("MT5_SERVER_TIMEZONE", "Europe/Athens"),
-        help="Broker-local timezone used to reset session VWAP",
-    )
-    parser.add_argument("--output-dir", default="reports/vwap_m15")
+    parser.add_argument("--stop-loss-pips", type=float, default=500.0)
+    parser.add_argument("--take-profit-pips", type=float, default=1000.0)
+    parser.add_argument("--period", type=int, default=DEFAULT_VWAP_PERIOD)
+    parser.add_argument("--output-dir", default="reports/gold_vwap200_m5")
     args = parser.parse_args()
+
+    if args.period < 2:
+        parser.error("--period must be at least 2")
 
     try:
         history = load_history()
-        strategy = make_vwap_strategy(history, args.session_timezone)
+        strategy = make_vwap_strategy(history, args.period)
         result = run_backtest(
             history=history,
             strategy=strategy,
@@ -61,21 +56,22 @@ def main():
         return 2
 
     result["strategy_rules"] = (
-        "M15 session VWAP: BUY when a completed close crosses from at/below "
-        "to above broker-local-day VWAP; SELL when it crosses from at/above "
-        "to below; close and reverse on the opposite cross; execute on the "
-        "next candle open; exits also protected by provisional "
-        f"{args.stop_loss_pips}-pip SL and {args.take_profit_pips}-pip TP."
+        f"M5 rolling VWAP({args.period}): BUY when a completed close crosses "
+        "from at/below to above the rolling VWAP; SELL on the opposite cross; "
+        "close/reverse on the next candle open. SL/TP use the paper model's "
+        f"price-point scaling ({args.stop_loss_pips} and "
+        f"{args.take_profit_pips} pips at point size {args.point_size})."
     )
-    result["assumptions"]["vwap_session_timezone"] = args.session_timezone
-    result["assumptions"]["vwap_weighting"] = "MT5 tick_volume proxy (not centralized Forex volume)"
+    result["assumptions"]["vwap_period"] = args.period
+    result["assumptions"]["vwap_weighting"] = "MT5 tick_volume proxy for Gold CFD activity"
+    result["assumptions"]["symbol"] = os.environ.get("FOREX_SYMBOL", "GOLD#").strip()
     paths = write_report(result, output_dir=args.output_dir)
 
-    print("=== M15 SESSION-VWAP PAPER BACKTEST ===")
+    print("=== GOLD M5 ROLLING VWAP PAPER BACKTEST ===")
     print("Mode: historical paper simulation; no broker orders")
     print("Symbol:", result["assumptions"]["symbol"])
-    print("Session timezone:", args.session_timezone)
-    print("VWAP weighting: MT5 tick volume proxy")
+    print("Timeframe: M5 | VWAP period:", args.period)
+    print("VWAP weighting: MT5 tick-volume proxy")
     print("Candles:", len(history))
     print("Date range:", history["time_utc"].iloc[0].isoformat(), "->", history["time_utc"].iloc[-1].isoformat())
     print(f"Starting balance: {result['starting_balance']:.2f}")
@@ -89,9 +85,9 @@ def main():
     print(f"Maximum drawdown: {result['max_drawdown_pct']:.3f}%")
     print("Orders sent: 0")
     print("Reports:")
-    for name, path in paths.items():
-        print(f"  {name}: {Path(path).resolve()}")
-    print("Tick volume is an FX proxy, spread/slippage are approximations, and results do not guarantee future performance.")
+    for name, output_path in paths.items():
+        print(f"  {name}: {Path(output_path).resolve()}")
+    print("Historical bar spreads/slippage are approximations; results do not guarantee future performance.")
     return 0
 
 
