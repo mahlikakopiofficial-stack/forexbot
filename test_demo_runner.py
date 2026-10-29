@@ -2,9 +2,11 @@ import sqlite3
 from types import SimpleNamespace
 
 import pytest
+import pandas as pd
 
 from demo_runner import (
     calculate_protective_prices,
+    validate_latest_bar_freshness,
     DemoExecutionError,
     SingleInstanceLock,
     decide_existing_position_action,
@@ -104,3 +106,36 @@ def test_existing_position_is_only_closed_on_opposite_signal(
     signal, direction, expected
 ):
     assert decide_existing_position_action(signal, direction) == expected
+
+
+
+def test_freshness_check_accepts_recent_completed_m15_candle():
+    bars = pd.DataFrame({
+        "time_utc": [pd.Timestamp("2026-10-29T10:00:00Z")]
+    })
+    validate_latest_bar_freshness(
+        bars,
+        now_utc=pd.Timestamp("2026-10-29T10:20:00Z").to_pydatetime(),
+    )
+
+
+def test_freshness_check_rejects_stale_candle():
+    bars = pd.DataFrame({
+        "time_utc": [pd.Timestamp("2026-10-29T10:00:00Z")]
+    })
+    with pytest.raises(DemoExecutionError, match="is stale"):
+        validate_latest_bar_freshness(
+            bars,
+            now_utc=pd.Timestamp("2026-10-29T11:00:00Z").to_pydatetime(),
+        )
+
+
+def test_freshness_check_rejects_candle_that_closes_in_future():
+    bars = pd.DataFrame({
+        "time_utc": [pd.Timestamp("2026-10-29T10:00:00Z")]
+    })
+    with pytest.raises(DemoExecutionError, match="closes in the future"):
+        validate_latest_bar_freshness(
+            bars,
+            now_utc=pd.Timestamp("2026-10-29T10:05:00Z").to_pydatetime(),
+        )
