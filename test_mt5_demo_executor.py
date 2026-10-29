@@ -34,6 +34,8 @@ class FakeMT5:
         check_retcode=0, market_execution=False,
         fail_position_read_after_send=False,
         switch_to_real_on_order_check=False,
+        check_raises=False,
+        send_raises=False,
     ):
         self.now = now
         self.terminal = SimpleNamespace(
@@ -77,6 +79,8 @@ class FakeMT5:
         self.positions_get_calls = 0
         self.fail_position_read_after_send = fail_position_read_after_send
         self.switch_to_real_on_order_check = switch_to_real_on_order_check
+        self.check_raises = check_raises
+        self.send_raises = send_raises
         self.last_request = None
         self._last_error = (1, "fake error")
 
@@ -114,6 +118,8 @@ class FakeMT5:
 
     def order_check(self, request):
         self.check_calls += 1
+        if self.check_raises:
+            raise RuntimeError("simulated check failure")
         if self.switch_to_real_on_order_check:
             self.account.trade_mode = 2
         return SimpleNamespace(retcode=self.check_retcode, comment="fake check")
@@ -121,6 +127,8 @@ class FakeMT5:
     def order_send(self, request):
         self.send_calls += 1
         self.last_request = dict(request)
+        if self.send_raises:
+            raise RuntimeError("simulated ambiguous send failure")
         if not self.send_result:
             return None
         if "position" in request:
@@ -387,3 +395,43 @@ def test_sell_stop_distance_is_measured_from_ask_not_bid():
         )
 
     assert api.send_calls == 0
+
+
+
+def test_invalid_executor_spread_config_fails_closed():
+    api, executor = setup_executor()
+    executor.config = DemoConfig(
+        expected_server="XMGlobal-MT5 2",
+        orders_enabled=True,
+        max_spread_points=float("nan"),
+        server_timezone="Europe/Athens",
+    )
+
+    with pytest.raises(DemoExecutionError, match="Maximum spread"):
+        executor.place_protected_market_order(
+            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        )
+
+    assert api.send_calls == 0
+
+
+def test_order_check_exception_is_a_pre_send_rejection():
+    api, executor = setup_executor(check_raises=True)
+
+    with pytest.raises(DemoExecutionError, match="order_check raised"):
+        executor.place_protected_market_order(
+            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        )
+
+    assert api.send_calls == 0
+
+
+def test_order_send_exception_is_uncertain_and_never_retried():
+    api, executor = setup_executor(send_raises=True)
+
+    with pytest.raises(OrderResultUncertain, match="Do not retry"):
+        executor.place_protected_market_order(
+            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        )
+
+    assert api.send_calls == 1
