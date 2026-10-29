@@ -15,6 +15,7 @@ from mt5_demo_executor import (
 class FakeMT5:
     ACCOUNT_TRADE_MODE_DEMO = 0
     SYMBOL_TRADE_MODE_DISABLED = 0
+    SYMBOL_CHART_MODE_BID = 0
     ORDER_FILLING_FOK = 0
     ORDER_FILLING_IOC = 1
     ORDER_FILLING_RETURN = 2
@@ -51,6 +52,7 @@ class FakeMT5:
             visible=True, point=0.00001, digits=5, trade_mode=4,
             volume_min=0.01, volume_max=100.0, volume_step=0.01,
             trade_stops_level=0,
+            chart_mode=self.SYMBOL_CHART_MODE_BID,
             trade_exemode=(
                 self.SYMBOL_TRADE_EXECUTION_MARKET
                 if market_execution else 0
@@ -298,4 +300,17 @@ def test_account_switch_to_real_after_order_check_is_blocked_before_send():
         )
 
     assert api.check_calls == 1
+    assert api.send_calls == 0
+
+
+
+def test_last_price_chart_mode_is_rejected_for_bid_based_model():
+    api, executor = setup_executor()
+    api.info.chart_mode = 1
+
+    with pytest.raises(DemoExecutionError, match="not Bid-based"):
+        executor.place_protected_market_order(
+            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        )
+
     assert api.send_calls == 0
