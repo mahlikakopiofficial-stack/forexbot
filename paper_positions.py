@@ -17,7 +17,7 @@ MT5_PATH = os.environ.get(
     r"C:\Program Files\MetaTrader 5\terminal64.exe",
 )
 
-SYMBOL = "EURUSD"
+SYMBOL = os.environ.get("FOREX_SYMBOL", "EURUSD").strip()
 
 # Starting assumptions for simulation only.
 DEFAULT_SLIPPAGE = 0.00001
