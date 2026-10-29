@@ -94,10 +94,10 @@ class FakeMT5:
         return self._last_error
 
     def symbol_info(self, symbol):
-        return self.info if symbol == "EURUSD" else None
+        return self.info if symbol in {"EURUSD", "EURUSD#"} else None
 
     def symbol_info_tick(self, symbol):
-        return self.tick if symbol == "EURUSD" else None
+        return self.tick if symbol in {"EURUSD", "EURUSD#"} else None
 
     def symbol_select(self, symbol, selected):
         return True
@@ -435,3 +435,35 @@ def test_order_send_exception_is_uncertain_and_never_retried():
         )
 
     assert api.send_calls == 1
+
+
+
+def test_config_from_env_selects_one_explicit_allowed_symbol(monkeypatch):
+    monkeypatch.setenv("FOREX_SYMBOL", "EURUSD#")
+    monkeypatch.delenv("FOREX_DEMO_SYMBOL", raising=False)
+    monkeypatch.delenv("MT5_DEMO_ORDER_ENABLED", raising=False)
+    monkeypatch.delenv("MT5_DEMO_LOGIN", raising=False)
+
+    config = DemoConfig.from_env()
+    assert config.allowed_symbols == ("EURUSD#",)
+    assert config.orders_enabled is False
+    config.validate()
+
+
+def test_broker_enabled_eurusd_variant_is_supported_by_allowlist():
+    api, _ = setup_executor()
+    config = DemoConfig(
+        expected_server="XMGlobal-MT5 2",
+        orders_enabled=True,
+        server_timezone="Europe/Athens",
+        max_spread_points=30,
+        allowed_symbols=("EURUSD#",),
+    )
+    executor = MT5DemoExecutor(api, config, now_fn=lambda: api.now)
+
+    result = executor.place_protected_market_order(
+        "EURUSD#", "BUY", 0.01, 1.09900, 1.10200
+    )
+
+    assert result["position_ticket"] == 42
+    assert api.last_request["symbol"] == "EURUSD#"
