@@ -22,13 +22,13 @@ from demo_runner import (
 )
 
 
-@pytest.mark.parametrize("symbol", ["EURUSD", "EURUSD#"])
+@pytest.mark.parametrize("symbol", ["GOLD", "GOLD#"])
 def test_runner_accepts_allowlisted_symbol(monkeypatch, symbol):
     monkeypatch.setattr(demo_runner, "SYMBOL", symbol)
     validate_settings()
 
 
-@pytest.mark.parametrize("symbol", ["", "GBPUSD", "EURUSD.pro"])
+@pytest.mark.parametrize("symbol", ["", "EURUSD", "GBPUSD"])
 def test_runner_rejects_unlisted_symbol(monkeypatch, symbol):
     monkeypatch.setattr(demo_runner, "SYMBOL", symbol)
     with pytest.raises(ValueError, match="Unsupported FOREX_SYMBOL"):
@@ -36,7 +36,7 @@ def test_runner_rejects_unlisted_symbol(monkeypatch, symbol):
 
 
 def test_last_processed_checkpoint_is_scoped_per_symbol():
-    assert last_processed_state_key("EURUSD") != last_processed_state_key("EURUSD#")
+    assert last_processed_state_key("GOLD") != last_processed_state_key("GOLD#")
 
 
 def test_ema_crossover_uses_only_latest_completed_close_values():
@@ -50,22 +50,21 @@ def test_invalid_ema_settings_input_prices_raise():
         ema_crossover_signal([1.1, 1.2, float("nan"), 1.3, 1.4], fast=2, slow=3)
 
 
-def test_protective_price_calculation_for_five_digit_eurusd():
-    info = SimpleNamespace(point=0.00001, digits=5)
-    quote = {"bid": 1.10000, "ask": 1.10020}
+def test_protective_price_calculation_for_gold():
+    info = SimpleNamespace(point=0.01, digits=2)
+    quote = {"bid": 4000.00, "ask": 4000.20}
 
     sl_buy, tp_buy = calculate_protective_prices(
-        "BUY", quote, info, stop_pips=20, target_pips=40
+        "BUY", quote, info, stop_distance=5.0, target_distance=10.0
     )
     sl_sell, tp_sell = calculate_protective_prices(
-        "SELL", quote, info, stop_pips=20, target_pips=40
+        "SELL", quote, info, stop_distance=5.0, target_distance=10.0
     )
 
-    assert sl_buy == pytest.approx(1.09820)
-    assert tp_buy == pytest.approx(1.10420)
-    assert sl_sell == pytest.approx(1.10200)
-    assert tp_sell == pytest.approx(1.09600)
-
+    assert sl_buy == pytest.approx(3995.20)
+    assert tp_buy == pytest.approx(4010.20)
+    assert sl_sell == pytest.approx(4005.00)
+    assert tp_sell == pytest.approx(3990.00)
 
 def test_execution_ledger_blocks_unresolved_events(tmp_path):
     db = tmp_path / "demo.sqlite3"
@@ -73,7 +72,7 @@ def test_execution_ledger_blocks_unresolved_events(tmp_path):
     assert unresolved_events(db) == []
 
     record_event(
-        "EURUSD|M15|2026-10-29T09:15:00Z|BUY",
+        "GOLD#|M5|2026-10-29T09:15:00Z|BUY",
         "2026-10-29T09:15:00Z",
         "OPEN_BUY",
         "PENDING",
@@ -127,33 +126,39 @@ def test_existing_position_reverses_on_opposite_signal(signal, direction, expect
 
 
 
-def test_freshness_check_accepts_recent_completed_m15_candle():
+def test_freshness_check_accepts_recent_completed_m5_candle():
     bars = pd.DataFrame({
         "time_utc": [pd.Timestamp("2026-10-29T10:00:00Z")]
     })
     validate_latest_bar_freshness(
         bars,
-        now_utc=pd.Timestamp("2026-10-29T10:20:00Z").to_pydatetime(),
+        now_utc=pd.Timestamp("2026-10-29T10:10:00Z").to_pydatetime(),
+        timeframe_minutes=5,
+        max_stale_minutes=15,
     )
 
 
-def test_freshness_check_rejects_stale_candle():
+def test_freshness_check_rejects_stale_m5_candle():
     bars = pd.DataFrame({
         "time_utc": [pd.Timestamp("2026-10-29T10:00:00Z")]
     })
     with pytest.raises(DemoExecutionError, match="is stale"):
         validate_latest_bar_freshness(
             bars,
-            now_utc=pd.Timestamp("2026-10-29T11:00:00Z").to_pydatetime(),
+            now_utc=pd.Timestamp("2026-10-29T10:30:00Z").to_pydatetime(),
+            timeframe_minutes=5,
+            max_stale_minutes=15,
         )
 
 
-def test_freshness_check_rejects_candle_that_closes_in_future():
+def test_freshness_check_rejects_m5_candle_that_closes_in_future():
     bars = pd.DataFrame({
         "time_utc": [pd.Timestamp("2026-10-29T10:00:00Z")]
     })
     with pytest.raises(DemoExecutionError, match="closes in the future"):
         validate_latest_bar_freshness(
             bars,
-            now_utc=pd.Timestamp("2026-10-29T10:05:00Z").to_pydatetime(),
+            now_utc=pd.Timestamp("2026-10-29T10:02:00Z").to_pydatetime(),
+            timeframe_minutes=5,
+            max_stale_minutes=15,
         )
