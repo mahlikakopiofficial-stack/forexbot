@@ -24,7 +24,12 @@ except ImportError:  # Keep safety logic unit-testable without the native packag
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_MT5_PATH = r"C:\Program Files\MetaTrader 5\terminal64.exe"
-SUPPORTED_SYMBOLS = frozenset({"EURUSD", "EURUSD#"})
+# Only Gold contract aliases are allowed; the runner selects one exact symbol.
+GOLD_SYMBOLS = frozenset({
+    "GOLD", "GOLD#", "GOLDmicro", "GOLDm#",
+    "XAUUSD", "XAUUSD#",
+})
+SUPPORTED_SYMBOLS = GOLD_SYMBOLS
 ENABLE_TOKEN = "YES_DEMO_ONLY"
 
 
@@ -45,7 +50,7 @@ class DemoConfig:
     deviation_points: int = 20
     max_spread_points: float = 30.0
     server_timezone: str = "Europe/Athens"
-    allowed_symbols: tuple[str, ...] = ("EURUSD",)
+    allowed_symbols: tuple[str, ...] = ("GOLD#",)
 
     @classmethod
     def from_env(cls) -> "DemoConfig":
@@ -53,7 +58,7 @@ class DemoConfig:
         login_text = os.environ.get("MT5_DEMO_LOGIN", "").strip()
         selected_symbol = os.environ.get(
             "FOREX_SYMBOL",
-            os.environ.get("FOREX_DEMO_SYMBOL", "EURUSD"),
+            os.environ.get("FOREX_DEMO_SYMBOL", "GOLD#"),
         ).strip()
         return cls(
             expected_server=os.environ.get(
@@ -256,8 +261,8 @@ class MT5DemoExecutor:
         if trade_mode == disabled:
             raise DemoExecutionError(f"Trading is disabled for {symbol}")
 
-        # Both allowlisted EURUSD variants must expose Bid-based bars because
-        # the historical cost model uses Bid OHLC and an approximate spread.
+        # Gold symbol aliases must expose Bid-based bars because the
+        # historical cost model uses Bid OHLC and an approximate spread.
         if symbol in SUPPORTED_SYMBOLS:
             bid_mode = getattr(self.api, "SYMBOL_CHART_MODE_BID", None)
             chart_mode = getattr(info, "chart_mode", None)
