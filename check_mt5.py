@@ -35,14 +35,14 @@ def main():
         print("Terminal connected:", terminal.connected)
         print("Terminal path:", terminal.path)
 
-        symbol = "EURUSD"
+        symbol = os.environ.get("FOREX_SYMBOL", "GOLD#").strip()
         info = mt5.symbol_info(symbol)
 
         if info is None:
-            print("EURUSD not found under that exact symbol name.")
-            matches = mt5.symbols_get("*EUR*") or ()
+            print(f"{symbol} not found under that exact symbol name.")
+            matches = tuple(mt5.symbols_get("*GOLD*") or ()) + tuple(mt5.symbols_get("*XAUUSD*") or ())
 
-            print("Available EUR symbols:")
+            print("Available Gold symbols:")
             for item in matches[:20]:
                 print(" -", item.name)
 
