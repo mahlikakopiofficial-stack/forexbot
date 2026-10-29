@@ -151,13 +151,12 @@ proxy, and spread/slippage estimates from M15 bars are not tick-accurate.
 These paper results do not guarantee future performance. Keep broker orders
 disabled while evaluating the strategy.
 
-## Fixed-parameter walk-forward check
+## Previous EMA baseline walk-forward check
 
-After the chronological split report, run the fixed EMA settings through five
-sequential test windows. Each window uses only prior candles to warm up the
-EMA; the warm-up section cannot open positions. Each fold is an independent
-virtual-balance simulation, and the report shows returns by window rather than
-pretending these are one compounded account.
+This section evaluates the earlier EMA baseline only; the selected strategy is
+now session VWAP as documented above. The example EMA settings are retained for
+comparison, not as the active strategy. Each fold is an independent virtual
+balance simulation.
 
 ```powershell
 $env:FOREX_SYMBOL = "EURUSD#"
@@ -170,12 +169,11 @@ good. A small number of profitable folds or a high pooled profit factor would
 still not establish a durable edge. The dataset is short and its spread model
 is approximate, so this remains exploratory paper research.
 
-## Chronological strategy evaluation
+## Previous EMA train/holdout baseline
 
-After verifying the dry-run connection, evaluate the fixed example EMA settings
-on a chronological train/holdout split. This uses the selected broker symbol's
-stored history and the paper backtest cost assumptions; it does not connect to
-MT5 or send broker orders.
+This is a historical diagnostic for the earlier EMA example, not the selected
+VWAP strategy. It uses the selected broker symbol's stored history and paper
+backtest cost assumptions; it does not connect to MT5 or send broker orders.
 
 ```powershell
 $env:FOREX_SYMBOL = "EURUSD#"
