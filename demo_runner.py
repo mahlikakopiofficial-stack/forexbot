@@ -1,8 +1,7 @@
-"""M15 session-VWAP crossing runner for the MT5 DEMO account only.
+"""M5 rolling-VWAP(200) crossing runner for the MT5 DEMO account only.
 
-Signals use completed-candle closes crossing broker-day VWAP. MT5 tick volume
-is a spot-Forex proxy, not centralized traded volume. The runner starts in DRY
-RUN mode; demo orders require an explicit opt-in token and strict safeguards.
+Signals use completed-candle closes crossing a 200-bar rolling VWAP. MT5 tick
+volume is an activity proxy for the broker's Gold CFD. Orders remain demo-only.
 """
 from __future__ import annotations
 
@@ -35,13 +34,17 @@ from mt5_demo_executor import (
 
 STATE_DB = BASE_DIR / "data" / "demo_runner.sqlite3"
 SYMBOL = os.environ.get(
-    "FOREX_SYMBOL", os.environ.get("FOREX_DEMO_SYMBOL", "EURUSD")
+    "FOREX_SYMBOL", os.environ.get("FOREX_DEMO_SYMBOL", "GOLD#")
 ).strip()
-TIMEFRAME_LABEL = "M15"
-TIMEFRAME = getattr(mt5, "TIMEFRAME_M15", None) if mt5 is not None else None
+TIMEFRAME_LABEL = "M5"
+TIMEFRAME_MINUTES = 5
+VWAP_PERIOD = int(os.environ.get("FOREX_VWAP_PERIOD", "200"))
+MAX_STALE_CANDLE_MINUTES = 15
+TIMEFRAME = getattr(mt5, "TIMEFRAME_M5", None) if mt5 is not None else None
 VOLUME_LOTS = float(os.environ.get("FOREX_DEMO_VOLUME_LOTS", "0.01"))
-STOP_LOSS_PIPS = float(os.environ.get("FOREX_DEMO_STOP_PIPS", "20"))
-TAKE_PROFIT_PIPS = float(os.environ.get("FOREX_DEMO_TARGET_PIPS", "40"))
+# Gold SL/TP distances are quoted USD price units, not Forex pips.
+STOP_LOSS_DISTANCE = float(os.environ.get("FOREX_DEMO_STOP_DISTANCE", "5.0"))
+TAKE_PROFIT_DISTANCE = float(os.environ.get("FOREX_DEMO_TARGET_DISTANCE", "10.0"))
 POLL_SECONDS = int(os.environ.get("FOREX_DEMO_POLL_SECONDS", "10"))
 MAX_ENTRIES_PER_UTC_DAY = int(
     os.environ.get("FOREX_DEMO_MAX_ENTRIES_PER_DAY", "3")
@@ -69,13 +72,15 @@ def validate_settings() -> None:
         )
     if not math.isfinite(VOLUME_LOTS) or VOLUME_LOTS <= 0:
         raise ValueError("FOREX_DEMO_VOLUME_LOTS must be positive and finite.")
+    if isinstance(VWAP_PERIOD, bool) or not 2 <= VWAP_PERIOD <= 5000:
+        raise ValueError("FOREX_VWAP_PERIOD must be between 2 and 5000")
     if (
-        not math.isfinite(STOP_LOSS_PIPS)
-        or not math.isfinite(TAKE_PROFIT_PIPS)
-        or STOP_LOSS_PIPS <= 0
-        or TAKE_PROFIT_PIPS <= 0
+        not math.isfinite(STOP_LOSS_DISTANCE)
+        or not math.isfinite(TAKE_PROFIT_DISTANCE)
+        or STOP_LOSS_DISTANCE <= 0
+        or TAKE_PROFIT_DISTANCE <= 0
     ):
-        raise ValueError("Demo stop-loss and take-profit distances must be finite and positive.")
+        raise ValueError("Gold stop-loss and take-profit price distances must be finite and positive.")
     if POLL_SECONDS < 2 or MAX_ENTRIES_PER_UTC_DAY < 1:
         raise ValueError("Poll interval and daily entry limit are invalid.")
     if not math.isfinite(MAX_DAILY_EQUITY_LOSS) or MAX_DAILY_EQUITY_LOSS <= 0:
@@ -86,34 +91,40 @@ def last_processed_state_key(symbol: str) -> str:
     """Keep each allowed symbol's first-run checkpoint independent."""
     if not symbol:
         raise ValueError("Symbol must be non-empty")
-    return f"last_processed_candle_utc:{symbol}"
+    return f"last_processed_candle_utc:{TIMEFRAME_LABEL}:{symbol}"
 
 
-def calculate_protective_prices(direction: str, quote: dict, info,
-                                stop_pips: float = STOP_LOSS_PIPS,
-                                target_pips: float = TAKE_PROFIT_PIPS) -> tuple[float, float]:
-    """Return absolute broker SL/TP prices for an illustrative demo signal."""
+def calculate_protective_prices(
+    direction: str,
+    quote: dict,
+    info,
+    stop_distance: float = STOP_LOSS_DISTANCE,
+    target_distance: float = TAKE_PROFIT_DISTANCE,
+) -> tuple[float, float]:
+    """Return Gold SL/TP with distances in quoted USD price units."""
     direction = direction.upper()
-    point = float(info.point)
     digits = int(info.digits)
-    pip_size = point * 10 if digits in (3, 5) else point
-    distance_sl = float(stop_pips) * pip_size
-    distance_tp = float(target_pips) * pip_size
+    stop_distance = float(stop_distance)
+    target_distance = float(target_distance)
+    if (
+        not math.isfinite(stop_distance) or stop_distance <= 0
+        or not math.isfinite(target_distance) or target_distance <= 0
+    ):
+        raise ValueError("Stop/target price distances must be positive and finite")
 
     if direction == "BUY":
         reference = float(quote["ask"])
         return (
-            round(reference - distance_sl, digits),
-            round(reference + distance_tp, digits),
+            round(reference - stop_distance, digits),
+            round(reference + target_distance, digits),
         )
     if direction == "SELL":
         reference = float(quote["bid"])
         return (
-            round(reference + distance_sl, digits),
-            round(reference - distance_tp, digits),
+            round(reference + stop_distance, digits),
+            round(reference - target_distance, digits),
         )
     raise ValueError("Direction must be BUY or SELL")
-
 
 def init_state_db(path=STATE_DB) -> None:
     path = Path(path)
@@ -198,8 +209,8 @@ def record_event(event_key, candle_time, action, event_state, details, path=STAT
 def validate_latest_bar_freshness(
     bars: pd.DataFrame,
     now_utc: datetime | None = None,
-    timeframe_minutes: int = 15,
-    max_stale_minutes: int = 30,
+    timeframe_minutes: int = TIMEFRAME_MINUTES,
+    max_stale_minutes: int = MAX_STALE_CANDLE_MINUTES,
 ) -> None:
     """Reject a stale/future last completed candle before any signal can act."""
     if bars.empty or "time_utc" not in bars.columns:
@@ -268,13 +279,18 @@ def get_closed_bars(api, symbol: str, timeframe, count: int, timezone_name: str)
     ):
         raise DemoExecutionError("MT5 returned invalid OHLC relationships")
     if (
-        (df["time_utc"].dt.minute % 15 != 0).any()
+        (df["time_utc"].dt.minute % TIMEFRAME_MINUTES != 0).any()
         or (df["time_utc"].dt.second != 0).any()
     ):
         raise DemoExecutionError(
-            "Converted timestamps are not aligned to M15; check server timezone."
+            f"Converted timestamps are not aligned to {TIMEFRAME_LABEL}; "
+            "check server timezone."
         )
-    validate_latest_bar_freshness(df, timeframe_minutes=15, max_stale_minutes=30)
+    validate_latest_bar_freshness(
+        df,
+        timeframe_minutes=TIMEFRAME_MINUTES,
+        max_stale_minutes=MAX_STALE_CANDLE_MINUTES,
+    )
     return df
 
 
@@ -332,10 +348,9 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
             f"positions/orders before continuing: {pending[0][0]} ({pending[0][1]})"
         )
 
-    # A 200-candle window includes more than one broker-local day so session
-    # VWAP remains correctly anchored for the current session.
+    # Need period + 1 completed candles to compare adjacent rolling VWAP values.
     bars = get_closed_bars(
-        api, SYMBOL, TIMEFRAME, 200,
+        api, SYMBOL, TIMEFRAME, VWAP_PERIOD + 1,
         executor.config.server_timezone,
     )
     latest_time = utc_text(bars["time_utc"].iloc[-1].to_pydatetime())
@@ -350,9 +365,7 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
     if latest_time <= last_processed:
         return {"status": "NO_NEW_CANDLE", "candle_time_utc": latest_time, "signal": "HOLD"}
 
-    signal = vwap_crossover_signal(
-        bars, session_timezone=executor.config.server_timezone
-    )
+    signal = vwap_crossover_signal(bars, period=VWAP_PERIOD)
     # One idempotency key per closed candle, regardless of later signal recalculation.
     event_key = f"{SYMBOL}|{TIMEFRAME_LABEL}|{latest_time}"
 
@@ -627,7 +640,7 @@ def configure_logging() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="M15 EMA-crossover integration runner, MT5 demo-only."
+        description="M5 rolling VWAP(200) crossover runner, MT5 demo-only."
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -683,14 +696,14 @@ def main() -> int:
             configure_logging()
             logging.info(
                 "Demo runner starting: server=%s mode=%s orders_enabled=%s "
-                "strategy=SessionVWAPCross timezone=%s symbol=%s timeframe=%s",
+                "strategy=RollingVWAP(%s)Cross symbol=%s timeframe=%s",
                 status["server"], status["account_mode"], status["orders_enabled"],
-                executor.config.server_timezone, SYMBOL, TIMEFRAME_LABEL,
+                VWAP_PERIOD, SYMBOL, TIMEFRAME_LABEL,
             )
             logging.info(
-                "Risk defaults only: lots=%s SL=%s pips TP=%s pips "
-                "max_entries/day=%s max_daily_equity_loss=%s %s",
-                VOLUME_LOTS, STOP_LOSS_PIPS, TAKE_PROFIT_PIPS,
+                "Demo sizing defaults: lots=%s SL-distance=%s TP-distance=%s "
+                "Gold price units; max_entries/day=%s max_daily_equity_loss=%s %s",
+                VOLUME_LOTS, STOP_LOSS_DISTANCE, TAKE_PROFIT_DISTANCE,
                 MAX_ENTRIES_PER_UTC_DAY, MAX_DAILY_EQUITY_LOSS,
                 account.currency,
             )
