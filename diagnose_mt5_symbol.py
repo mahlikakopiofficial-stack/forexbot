@@ -1,4 +1,4 @@
-"""Read-only diagnosis for MT5 account permissions and EURUSD symbol availability.
+"""Read-only diagnosis for MT5 account permissions and Gold symbol availability.
 
 Prints no account login, balance, password, or credentials. Never sends orders.
 """
@@ -77,17 +77,17 @@ def main() -> int:
         ):
             print(f"{name}={getattr(mt5, name, 'not exposed by package')}")
 
-        names = ["EURUSD"]
+        names = ["GOLD#"]
         all_symbols = mt5.symbols_get()
         if all_symbols is None:
             print("\nCould not enumerate symbols:", mt5.last_error())
         else:
             matches = [
                 s.name for s in all_symbols
-                if "EURUSD" in s.name.upper()
+                if "GOLD" in s.name.upper() or "XAUUSD" in s.name.upper()
             ]
-            print("\nEURUSD-name candidates:", matches[:100])
-            names = list(dict.fromkeys(names + matches))
+            print("\nGold-name candidates:", matches[:100])
+            names = list(dict.fromkeys(matches + names))
 
         for name in names:
             info = mt5.symbol_info(name)
