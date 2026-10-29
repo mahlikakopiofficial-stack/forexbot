@@ -308,6 +308,44 @@ def run_backtest(
         "equity": balance,
     }]
 
+    def build_position(signal, bar, event_time, entry_fill):
+        """Build a position after its entry passes the 1:1 exposure check."""
+        return {
+            "side": signal,
+            "units": float(units),
+            "entry_time": event_time,
+            "entry_mid": float(bar["open"]),
+            "entry_fill": entry_fill,
+            "entry_commission": float(commission_per_side),
+            "entry_spread_cost": (
+                float(bar["spread"]) * point_size * units
+                if signal == "BUY" else 0.0
+            ),
+            "entry_slippage_cost": slippage_points * point_size * units,
+            "stop_loss": (
+                ((float(bar["open"]) + float(bar["spread"]) * point_size)
+                 if signal == "BUY" else float(bar["open"]))
+                - stop_loss_pips * pip_size
+                if signal == "BUY" and stop_loss_pips is not None
+                else (
+                    float(bar["open"]) + stop_loss_pips * pip_size
+                    if signal == "SELL" and stop_loss_pips is not None
+                    else None
+                )
+            ),
+            "take_profit": (
+                ((float(bar["open"]) + float(bar["spread"]) * point_size)
+                 if signal == "BUY" else float(bar["open"]))
+                + take_profit_pips * pip_size
+                if signal == "BUY" and take_profit_pips is not None
+                else (
+                    float(bar["open"]) - take_profit_pips * pip_size
+                    if signal == "SELL" and take_profit_pips is not None
+                    else None
+                )
+            ),
+        }
+
     for index in range(len(df) - 1):
         signal_history = df.iloc[:index + 1].copy(deep=True)
         signal = strategy(signal_history)
@@ -339,49 +377,7 @@ def run_backtest(
                 if units * entry_fill > balance + 1e-9:
                     rejected_entries += 1
                 else:
-                    position = {
-                        "side": signal,
-                        "units": float(units),
-                        "entry_time": event_time,
-                        "entry_mid": float(bar["open"]),
-                        "entry_fill": entry_fill,
-                        "entry_commission": float(
-                            commission_per_side
-                        ),
-                        "entry_spread_cost": (
-                            float(bar["spread"]) * point_size * units
-                            if signal == "BUY" else 0.0
-                        ),
-                        "entry_slippage_cost": (
-                            slippage_points * point_size * units
-                        ),
-                        "stop_loss": (
-                            (
-                                float(bar["open"])
-                                + float(bar["spread"]) * point_size
-                                if signal == "BUY" else float(bar["open"])
-                            ) - stop_loss_pips * pip_size
-                            if signal == "BUY" and stop_loss_pips is not None
-                            else (
-                                float(bar["open"]) + stop_loss_pips * pip_size
-                                if signal == "SELL" and stop_loss_pips is not None
-                                else None
-                            )
-                        ),
-                        "take_profit": (
-                            (
-                                float(bar["open"])
-                                + float(bar["spread"]) * point_size
-                                if signal == "BUY" else float(bar["open"])
-                            ) + take_profit_pips * pip_size
-                            if signal == "BUY" and take_profit_pips is not None
-                            else (
-                                float(bar["open"]) - take_profit_pips * pip_size
-                                if signal == "SELL" and take_profit_pips is not None
-                                else None
-                            )
-                        ),
-                    }
+                    position = build_position(signal, bar, event_time, entry_fill)
 
         else:
             opposite = (
@@ -407,6 +403,18 @@ def run_backtest(
                 trades.append(trade)
                 balance += trade["net_pnl_usd"]
                 position = None
+
+                # An opposite BUY/SELL signal closes the old side and opens the
+                # new side at this next-candle open, if the 1:1 cash rule allows.
+                # An EXIT signal closes without opening a reverse position.
+                if opposite:
+                    reverse_fill = candle_fill(
+                        bar, signal, "open", point_size, slippage_points
+                    )
+                    if units * reverse_fill > balance + 1e-9:
+                        rejected_entries += 1
+                    else:
+                        position = build_position(signal, bar, event_time, reverse_fill)
 
         # Mark open positions at the current candle's close using
         # a hypothetical executable exit price.
