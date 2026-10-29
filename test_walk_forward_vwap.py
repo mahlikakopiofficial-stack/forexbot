@@ -7,7 +7,7 @@ from walk_forward_vwap import evaluate_walk_forward, write_walk_forward
 
 
 def synthetic_history(rows=240):
-    times = pd.date_range("2026-10-20T08:00:00Z", periods=rows, freq="15min")
+    times = pd.date_range("2026-10-20T08:00:00Z", periods=rows, freq="5min")
     closes = [1.10 + 0.001 * math.sin(index * 0.45) for index in range(rows)]
     opens = [closes[0], *closes[:-1]]
     return pd.DataFrame({
