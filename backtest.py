@@ -10,7 +10,7 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent
 DB_FILE = BASE_DIR / "data" / "forex_lab.db"
 
-SYMBOL = "EURUSD"
+SYMBOL = os.environ.get("FOREX_SYMBOL", "EURUSD").strip()
 TIMEFRAME = "M15"
 BAR_MINUTES = 15
 
