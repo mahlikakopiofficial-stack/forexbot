@@ -1,9 +1,8 @@
-"""EMA-crossover integration runner for the MT5 DEMO account only.
+"""M15 session-VWAP crossing runner for the MT5 DEMO account only.
 
-The EMA values and stop/target distances are example plumbing defaults, not a
-validated trading strategy or a profit claim. The runner starts in DRY RUN mode.
-A demo order can be sent only after the account/server guards pass and the
-explicit MT5_DEMO_ORDER_ENABLED=YES_DEMO_ONLY token is supplied.
+Signals use completed-candle closes crossing broker-day VWAP. MT5 tick volume
+is a spot-Forex proxy, not centralized traded volume. The runner starts in DRY
+RUN mode; demo orders require an explicit opt-in token and strict safeguards.
 """
 from __future__ import annotations
 
@@ -20,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ema_strategy import ema_crossover_signal
+from vwap_strategy import vwap_crossover_signal
 from mt5_demo_executor import (
     BASE_DIR,
     DEFAULT_MT5_PATH,
@@ -40,8 +39,6 @@ SYMBOL = os.environ.get(
 ).strip()
 TIMEFRAME_LABEL = "M15"
 TIMEFRAME = getattr(mt5, "TIMEFRAME_M15", None) if mt5 is not None else None
-FAST_EMA = int(os.environ.get("FOREX_DEMO_FAST_EMA", "12"))
-SLOW_EMA = int(os.environ.get("FOREX_DEMO_SLOW_EMA", "26"))
 VOLUME_LOTS = float(os.environ.get("FOREX_DEMO_VOLUME_LOTS", "0.01"))
 STOP_LOSS_PIPS = float(os.environ.get("FOREX_DEMO_STOP_PIPS", "20"))
 TAKE_PROFIT_PIPS = float(os.environ.get("FOREX_DEMO_TARGET_PIPS", "40"))
@@ -70,8 +67,6 @@ def validate_settings() -> None:
         raise ValueError(
             f"Unsupported FOREX_SYMBOL {SYMBOL!r}; supported symbols: {supported}."
         )
-    if FAST_EMA < 2 or SLOW_EMA < 3 or FAST_EMA >= SLOW_EMA:
-        raise ValueError("EMA settings must satisfy 2 <= fast < slow.")
     if not math.isfinite(VOLUME_LOTS) or VOLUME_LOTS <= 0:
         raise ValueError("FOREX_DEMO_VOLUME_LOTS must be positive and finite.")
     if (
@@ -253,6 +248,7 @@ def get_closed_bars(api, symbol: str, timeframe, count: int, timezone_name: str)
             "low": float(rate["low"]),
             "close": float(rate["close"]),
             "spread": float(rate["spread"]),
+            "tick_volume": float(rate["tick_volume"]),
         })
 
     df = pd.DataFrame(rows)
@@ -260,8 +256,8 @@ def get_closed_bars(api, symbol: str, timeframe, count: int, timezone_name: str)
         raise DemoExecutionError("MT5 returned duplicate completed candles")
     if not df["time_utc"].is_monotonic_increasing:
         raise DemoExecutionError("MT5 candles are not chronological")
-    for column in ("open", "high", "low", "close", "spread"):
-        if not df[column].map(lambda value: pd.notna(value) and value >= 0).all():
+    for column in ("open", "high", "low", "close", "spread", "tick_volume"):
+        if not df[column].map(lambda value: pd.notna(value) and math.isfinite(float(value)) and value >= 0).all():
             raise DemoExecutionError(f"MT5 candle has invalid {column}")
     if (df[["open", "high", "low", "close"]] <= 0).any().any():
         raise DemoExecutionError("MT5 candle prices must be positive")
@@ -314,7 +310,7 @@ def position_direction(position, api) -> str:
 
 
 def decide_existing_position_action(signal: str, current_direction: str) -> str:
-    """Keep a position through HOLD/same-direction signals; close on reversal."""
+    """Hold through HOLD/same-side signals; reverse on the opposite crossing."""
     signal = signal.upper().strip()
     current_direction = current_direction.upper().strip()
     if signal not in {"BUY", "SELL", "HOLD"}:
@@ -323,7 +319,7 @@ def decide_existing_position_action(signal: str, current_direction: str) -> str:
         raise ValueError(f"Invalid existing position direction: {current_direction}")
     if signal == "HOLD" or signal == current_direction:
         return "HOLD"
-    return f"CLOSE_{current_direction}"
+    return f"REVERSE_TO_{signal}"
 
 
 def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
@@ -336,15 +332,17 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
             f"positions/orders before continuing: {pending[0][0]} ({pending[0][1]})"
         )
 
+    # A 200-candle window includes more than one broker-local day so session
+    # VWAP remains correctly anchored for the current session.
     bars = get_closed_bars(
-        api, SYMBOL, TIMEFRAME, max(100, SLOW_EMA * 5),
+        api, SYMBOL, TIMEFRAME, 200,
         executor.config.server_timezone,
     )
     latest_time = utc_text(bars["time_utc"].iloc[-1].to_pydatetime())
     last_processed = state_get(checkpoint_key, path)
 
     # On the first start, anchor to the latest completed candle and do not
-    # replay historical EMA crossovers into the broker.
+    # replay an old VWAP crossing into the broker.
     if last_processed is None:
         state_set(checkpoint_key, latest_time, path)
         return {"status": "INITIALIZED", "candle_time_utc": latest_time, "signal": "HOLD"}
@@ -352,8 +350,8 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
     if latest_time <= last_processed:
         return {"status": "NO_NEW_CANDLE", "candle_time_utc": latest_time, "signal": "HOLD"}
 
-    signal = ema_crossover_signal(
-        bars["close"].tolist(), FAST_EMA, SLOW_EMA
+    signal = vwap_crossover_signal(
+        bars, session_timezone=executor.config.server_timezone
     )
     # One idempotency key per closed candle, regardless of later signal recalculation.
     event_key = f"{SYMBOL}|{TIMEFRAME_LABEL}|{latest_time}"
@@ -420,6 +418,13 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
 
         current_direction = position_direction(current_position, api)
         action = decide_existing_position_action(signal, current_direction)
+        if action.startswith("REVERSE_TO_") and (
+            daily_loss >= MAX_DAILY_EQUITY_LOSS
+            or entries_count >= MAX_ENTRIES_PER_UTC_DAY
+        ):
+            # Always permit risk-reducing closure, but do not add a reverse
+            # entry after the daily loss or entry-count limit has been reached.
+            action = f"CLOSE_{current_direction}"
         if action == "HOLD":
             state_set(checkpoint_key, latest_time, path)
             return {
@@ -455,6 +460,43 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
             result = executor.close_managed_position(
                 SYMBOL, int(current_position.ticket)
             )
+        elif action.startswith("REVERSE_TO_"):
+            closed = executor.close_managed_position(
+                SYMBOL, int(current_position.ticket)
+            )
+            try:
+                quote = executor._quote(SYMBOL, enforce_spread=True)
+                info = executor._symbol_info(SYMBOL)
+                sl, tp = calculate_protective_prices(signal, quote, info)
+                opened = executor.place_protected_market_order(
+                    SYMBOL, signal, VOLUME_LOTS, sl, tp
+                )
+                increment_daily_entries(path)
+                result = {"closed_position": closed, "opened_reverse_position": opened}
+            except OrderResultUncertain as exc:
+                record_event(
+                    event_key, latest_time, action, "RECONCILE_REQUIRED",
+                    {"closed_position": closed, "reverse_entry_uncertain": str(exc)}, path,
+                )
+                raise
+            except DemoExecutionError as exc:
+                # The close succeeded. If the reverse entry is rejected, mark
+                # the event completed with an explicit note instead of retrying.
+                result = {
+                    "closed_position": closed,
+                    "reverse_entry_rejected": str(exc),
+                    "position_closed": True,
+                    "reverse_position_opened": False,
+                }
+                record_event(event_key, latest_time, action, "COMPLETED", result, path)
+                state_set(checkpoint_key, latest_time, path)
+                return {
+                    "status": "POSITION_CLOSED_REVERSE_REJECTED",
+                    "candle_time_utc": latest_time,
+                    "signal": signal,
+                    "action": action,
+                    "result": result,
+                }
         else:
             quote = executor._quote(SYMBOL, enforce_spread=True)
             info = executor._symbol_info(SYMBOL)
@@ -641,12 +683,12 @@ def main() -> int:
             configure_logging()
             logging.info(
                 "Demo runner starting: server=%s mode=%s orders_enabled=%s "
-                "strategy=EMA(%s,%s) symbol=%s timeframe=%s",
+                "strategy=SessionVWAPCross timezone=%s symbol=%s timeframe=%s",
                 status["server"], status["account_mode"], status["orders_enabled"],
-                FAST_EMA, SLOW_EMA, SYMBOL, TIMEFRAME_LABEL,
+                executor.config.server_timezone, SYMBOL, TIMEFRAME_LABEL,
             )
             logging.info(
-                "Example settings only: lots=%s SL=%s pips TP=%s pips "
+                "Risk defaults only: lots=%s SL=%s pips TP=%s pips "
                 "max_entries/day=%s max_daily_equity_loss=%s %s",
                 VOLUME_LOTS, STOP_LOSS_PIPS, TAKE_PROFIT_PIPS,
                 MAX_ENTRIES_PER_UTC_DAY, MAX_DAILY_EQUITY_LOSS,
