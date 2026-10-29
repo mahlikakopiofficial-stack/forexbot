@@ -41,6 +41,7 @@ class FakeMT5:
         )
         self.account = SimpleNamespace(
             server="XMGlobal-MT5 2",
+            login=123456,
             trade_mode=2 if real_account else self.ACCOUNT_TRADE_MODE_DEMO,
             currency="USD",
             trade_allowed=True,
@@ -156,6 +157,7 @@ def test_preflight_confirms_demo_server_and_mode():
     status = executor.preflight()
     assert status["account_mode"] == "DEMO"
     assert status["server"] == "XMGlobal-MT5 2"
+    assert executor._verified_login == 123456
 
 
 def test_real_account_is_rejected_before_any_order():
@@ -309,6 +311,37 @@ def test_last_price_chart_mode_is_rejected_for_bid_based_model():
     api.info.chart_mode = 1
 
     with pytest.raises(DemoExecutionError, match="not Bid-based"):
+        executor.place_protected_market_order(
+            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        )
+
+    assert api.send_calls == 0
+
+
+
+def test_expected_demo_login_mismatch_is_rejected():
+    api, executor = setup_executor()
+    executor.config = DemoConfig(
+        expected_server="XMGlobal-MT5 2",
+        expected_login=999999,
+        orders_enabled=True,
+        server_timezone="Europe/Athens",
+    )
+
+    with pytest.raises(DemoExecutionError, match="does not match MT5_DEMO_LOGIN"):
+        executor.place_protected_market_order(
+            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        )
+
+    assert api.send_calls == 0
+
+
+def test_account_login_change_during_session_is_rejected():
+    api, executor = setup_executor()
+    executor.preflight()
+    api.account.login = 654321
+
+    with pytest.raises(DemoExecutionError, match="account changed"):
         executor.place_protected_market_order(
             "EURUSD", "BUY", 0.01, 1.09900, 1.10200
         )
