@@ -19,6 +19,7 @@ def test_report_creates_three_files(tmp_path):
         "profit_factor": None,
         "max_drawdown_pct": 0.0,
         "rejected_entries": 0,
+        "strategy_rules": "EMA(3,8) test rule",
         "trades": [{
             "side": "BUY",
             "units": 50.0,
@@ -54,6 +55,7 @@ def test_report_creates_three_files(tmp_path):
 
     assert summary["final_balance"] == pytest.approx(100.5)
     assert summary["live_orders"] is False
+    assert summary["strategy_rules"] == "EMA(3,8) test rule"
 
     trades = pd.read_csv(paths["trades"])
     assert len(trades) == 1
