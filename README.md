@@ -125,7 +125,9 @@ fills. These require an explicit manual check in the demo terminal.
   By default this models 20-pip SL and 40-pip TP barriers from M15 OHLC;
   when both barriers are touched within one candle, it assumes the stop happened
   first. Short-side Ask prices are approximated as Bid plus that candle's
-  spread. These are conservative bar-based approximations, not tick-level fills.
+  spread. Intrabar exits are timestamped at the triggering candle's end because
+  exact tick time is unavailable. These are conservative bar-based
+  approximations, not tick-level fills.
   The backtest defaults to 50 base-currency units and an unleveraged exposure
   limit, so its position size is **not the same** as the demo runner's 0.01 lot.
   Set `--units`, `--starting-balance`, `--point-size`, `--slippage-points`,
