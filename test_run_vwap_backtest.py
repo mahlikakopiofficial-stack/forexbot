@@ -12,11 +12,12 @@ def synthetic_history(rows=20):
     times = pd.date_range("2026-10-28T08:00:00Z", periods=rows, freq="15min")
     pattern = [1.100, 1.099, 1.098, 1.102, 1.103, 1.097, 1.096, 1.104, 1.105, 1.095]
     closes = (pattern * ((rows + len(pattern) - 1) // len(pattern)))[:rows]
+    opens = [closes[0], *closes[:-1]]
     return pd.DataFrame({
         "time_utc": times,
-        "open": [closes[0], *closes[:-1]],
-        "high": [price + 0.00010 for price in closes],
-        "low": [price - 0.00010 for price in closes],
+        "open": opens,
+        "high": [max(opens[i], closes[i]) + 0.00010 for i in range(rows)],
+        "low": [min(opens[i], closes[i]) - 0.00010 for i in range(rows)],
         "close": closes,
         "spread": [10.0] * rows,
         "tick_volume": [100] * rows,
