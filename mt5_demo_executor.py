@@ -39,6 +39,7 @@ class OrderResultUncertain(DemoExecutionError):
 @dataclass(frozen=True)
 class DemoConfig:
     expected_server: str = "XMGlobal-MT5 2"
+    expected_login: int | None = None
     orders_enabled: bool = False
     magic: int = 261029
     deviation_points: int = 20
@@ -49,10 +50,12 @@ class DemoConfig:
     @classmethod
     def from_env(cls) -> "DemoConfig":
         enabled = os.environ.get("MT5_DEMO_ORDER_ENABLED", "").strip()
+        login_text = os.environ.get("MT5_DEMO_LOGIN", "").strip()
         return cls(
             expected_server=os.environ.get(
                 "MT5_DEMO_SERVER", "XMGlobal-MT5 2"
             ).strip(),
+            expected_login=int(login_text) if login_text else None,
             orders_enabled=(enabled == ENABLE_TOKEN),
             magic=int(os.environ.get("MT5_DEMO_MAGIC", "261029")),
             deviation_points=int(
@@ -106,6 +109,7 @@ class MT5DemoExecutor:
         self.api = api
         self.config = config
         self.now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+        self._verified_login: int | None = None
 
     def _require_orders_enabled(self):
         if not self.config.orders_enabled:
@@ -139,6 +143,28 @@ class MT5DemoExecutor:
                 "MT5 server mismatch: expected "
                 f"{self.config.expected_server!r}, got "
                 f"{getattr(account, 'server', None)!r}"
+            )
+
+        current_login = getattr(account, "login", None)
+        if current_login is None:
+            raise DemoExecutionError(
+                "MT5 did not expose the connected account login; refusing orders."
+            )
+        try:
+            current_login = int(current_login)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise DemoExecutionError("Invalid MT5 account login value") from exc
+        if (
+            self.config.expected_login is not None
+            and current_login != int(self.config.expected_login)
+        ):
+            raise DemoExecutionError("MT5 account login does not match MT5_DEMO_LOGIN")
+        if self._verified_login is None:
+            self._verified_login = current_login
+        elif current_login != self._verified_login:
+            raise DemoExecutionError(
+                "Connected MT5 account changed during this runner session; "
+                "restart only after confirming the intended demo account."
             )
 
         demo_mode = getattr(self.api, "ACCOUNT_TRADE_MODE_DEMO", None)
