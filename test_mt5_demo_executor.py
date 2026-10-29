@@ -128,7 +128,7 @@ class FakeMT5:
             ))
         return SimpleNamespace(
             retcode=self.TRADE_RETCODE_DONE, order=11, deal=12,
-            volume=request["volume"], price=request["price"], comment="done",
+            volume=request["volume"], price=request.get("price", 0.0), comment="done",
         )
 
 
