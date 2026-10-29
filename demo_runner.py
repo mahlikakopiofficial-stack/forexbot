@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import sqlite3
 import time
@@ -63,13 +64,18 @@ def validate_settings() -> None:
         raise ValueError("This initial runner only permits EURUSD.")
     if FAST_EMA < 2 or SLOW_EMA < 3 or FAST_EMA >= SLOW_EMA:
         raise ValueError("EMA settings must satisfy 2 <= fast < slow.")
-    if VOLUME_LOTS <= 0 or not pd.notna(VOLUME_LOTS):
+    if not math.isfinite(VOLUME_LOTS) or VOLUME_LOTS <= 0:
         raise ValueError("FOREX_DEMO_VOLUME_LOTS must be positive and finite.")
-    if STOP_LOSS_PIPS <= 0 or TAKE_PROFIT_PIPS <= 0:
-        raise ValueError("Demo stop-loss and take-profit distances must be positive.")
+    if (
+        not math.isfinite(STOP_LOSS_PIPS)
+        or not math.isfinite(TAKE_PROFIT_PIPS)
+        or STOP_LOSS_PIPS <= 0
+        or TAKE_PROFIT_PIPS <= 0
+    ):
+        raise ValueError("Demo stop-loss and take-profit distances must be finite and positive.")
     if POLL_SECONDS < 2 or MAX_ENTRIES_PER_UTC_DAY < 1:
         raise ValueError("Poll interval and daily entry limit are invalid.")
-    if MAX_DAILY_EQUITY_LOSS <= 0 or not pd.notna(MAX_DAILY_EQUITY_LOSS):
+    if not math.isfinite(MAX_DAILY_EQUITY_LOSS) or MAX_DAILY_EQUITY_LOSS <= 0:
         raise ValueError("Daily equity loss limit must be positive and finite.")
 
 
@@ -243,6 +249,8 @@ def get_closed_bars(api, symbol: str, timeframe, count: int, timezone_name: str)
         raise DemoExecutionError(
             "Converted timestamps are not aligned to M15; check server timezone."
         )
+    if df["time_utc"].iloc[-1] > pd.Timestamp(utc_now()) + pd.Timedelta(minutes=1):
+        raise DemoExecutionError("Latest completed candle is future-dated; refusing signal evaluation.")
     return df
 
 
@@ -305,7 +313,8 @@ def process_latest_bar(api, executor: MT5DemoExecutor, path=STATE_DB) -> dict:
     signal = ema_crossover_signal(
         bars["close"].tolist(), FAST_EMA, SLOW_EMA
     )
-    event_key = f"{SYMBOL}|{TIMEFRAME_LABEL}|{latest_time}|{signal}"
+    # One idempotency key per closed candle, regardless of later signal recalculation.
+    event_key = f"{SYMBOL}|{TIMEFRAME_LABEL}|{latest_time}"
 
     with sqlite3.connect(path, timeout=10) as conn:
         existing = conn.execute("""
