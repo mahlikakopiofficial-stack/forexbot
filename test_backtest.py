@@ -233,7 +233,7 @@ def test_sell_stop_uses_bid_high_plus_spread_ask_approximation():
     data = synthetic_history()
     data.loc[1, "spread"] = 10
     data.loc[1, "low"] = 1.10015
-    data.loc[1, "high"] = 1.10050
+    data.loc[1, "high"] = 1.10080
 
     result = run_backtest(
         data,
