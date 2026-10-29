@@ -100,6 +100,7 @@ def test_invalid_ohlc_is_rejected():
 
 def test_infinite_spread_is_rejected():
     data = synthetic_history()
+    data["spread"] = data["spread"].astype("float64")
     data.loc[1, "spread"] = float("inf")
     with pytest.raises(ValueError, match="Spread must contain finite"):
         validate_history(data)
