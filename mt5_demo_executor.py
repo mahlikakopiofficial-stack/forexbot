@@ -71,6 +71,7 @@ class DemoConfig:
             server_timezone=os.environ.get(
                 "MT5_SERVER_TIMEZONE", "Europe/Athens"
             ).strip(),
+            allowed_symbols=(selected_symbol,),
         )
 
 
