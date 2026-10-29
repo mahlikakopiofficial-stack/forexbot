@@ -106,10 +106,10 @@ def test_infinite_spread_is_rejected():
         validate_history(data)
 
 
-def test_misaligned_m15_timestamp_is_rejected():
+def test_misaligned_m5_timestamp_is_rejected():
     data = synthetic_history()
     data.loc[2, "time_utc"] += pd.Timedelta(minutes=1)
-    with pytest.raises(ValueError, match="align to 15-minute"):
+    with pytest.raises(ValueError, match="align to 5-minute"):
         validate_history(data)
 
 
