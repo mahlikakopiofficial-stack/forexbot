@@ -362,3 +362,28 @@ def test_managed_close_refuses_unreconciled_pending_orders():
         executor.close_managed_position("EURUSD", 42)
 
     assert api.send_calls == 0
+
+
+
+def test_buy_stop_distance_is_measured_from_bid_not_ask():
+    api, executor = setup_executor()
+    api.info.trade_stops_level = 50  # 5 pips for a 5-digit EURUSD symbol
+
+    with pytest.raises(DemoExecutionError, match="BUY stop-loss/take-profit"):
+        executor.place_protected_market_order(
+            "EURUSD", "BUY", 0.01, 1.09960, 1.10200
+        )
+
+    assert api.send_calls == 0
+
+
+def test_sell_stop_distance_is_measured_from_ask_not_bid():
+    api, executor = setup_executor()
+    api.info.trade_stops_level = 50  # 5 pips for a 5-digit EURUSD symbol
+
+    with pytest.raises(DemoExecutionError, match="SELL stop-loss/take-profit"):
+        executor.place_protected_market_order(
+            "EURUSD", "SELL", 0.01, 1.10060, 1.09950
+        )
+
+    assert api.send_calls == 0
