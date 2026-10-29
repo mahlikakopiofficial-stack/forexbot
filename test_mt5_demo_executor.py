@@ -26,8 +26,13 @@ class FakeMT5:
     TRADE_RETCODE_DONE_PARTIAL = 10010
     TRADE_RETCODE_PLACED = 10008
     POSITION_TYPE_BUY = 0
+    SYMBOL_TRADE_EXECUTION_MARKET = 2
 
-    def __init__(self, now, *, real_account=False, send_result=True, check_retcode=0):
+    def __init__(
+        self, now, *, real_account=False, send_result=True,
+        check_retcode=0, market_execution=False,
+        fail_position_read_after_send=False,
+    ):
         self.now = now
         self.terminal = SimpleNamespace(
             connected=True, trade_allowed=True, tradeapi_disabled=False
@@ -45,6 +50,10 @@ class FakeMT5:
             visible=True, point=0.00001, digits=5, trade_mode=4,
             volume_min=0.01, volume_max=100.0, volume_step=0.01,
             trade_stops_level=0,
+            trade_exemode=(
+                self.SYMBOL_TRADE_EXECUTION_MARKET
+                if market_execution else 0
+            ),
         )
         wall_label = now.astimezone(ZoneInfo("Europe/Athens")).replace(
             tzinfo=timezone.utc
@@ -61,6 +70,8 @@ class FakeMT5:
         self.check_retcode = check_retcode
         self.check_calls = 0
         self.send_calls = 0
+        self.positions_get_calls = 0
+        self.fail_position_read_after_send = fail_position_read_after_send
         self.last_request = None
         self._last_error = (1, "fake error")
 
@@ -83,6 +94,9 @@ class FakeMT5:
         return True
 
     def positions_get(self, symbol=None, ticket=None):
+        self.positions_get_calls += 1
+        if self.fail_position_read_after_send and self.send_calls > 0:
+            return None
         rows = list(self.positions)
         if symbol:
             rows = [p for p in rows if p.symbol == symbol]
@@ -245,3 +259,26 @@ def test_managed_position_can_be_closed_and_is_verified():
     assert result["deal"] == 12
     assert api.send_calls == 1
     assert api.positions == []
+
+
+
+def test_market_execution_omits_price_from_order_request():
+    api, executor = setup_executor()
+    api.info.trade_exemode = api.SYMBOL_TRADE_EXECUTION_MARKET
+
+    executor.place_protected_market_order(
+        "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+    )
+
+    assert "price" not in api.last_request
+
+
+def test_post_send_verification_failure_is_uncertain_not_retried():
+    api, executor = setup_executor(fail_position_read_after_send=True)
+
+    with pytest.raises(OrderResultUncertain, match="Do not retry|verification failed"):
+        executor.place_protected_market_order(
+            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        )
+
+    assert api.send_calls == 1
