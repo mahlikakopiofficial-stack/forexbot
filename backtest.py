@@ -420,7 +420,9 @@ def run_backtest(
                 trade = close_position(
                     position=position,
                     bar=exit_bar,
-                    exit_time=event_time,
+                    # Exact intra-bar time is unavailable in OHLC history;
+                    # timestamp the exit at the end of the triggering candle.
+                    exit_time=event_time + pd.Timedelta(minutes=BAR_MINUTES),
                     point_size=point_size,
                     slippage_points=slippage_points,
                     commission_per_side=commission_per_side,
