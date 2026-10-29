@@ -184,3 +184,77 @@ def test_bid_bar_sell_pays_spread_when_buying_back():
     assert trade["exit_price"] == pytest.approx(1.1012 + 0.0003)
     assert trade["spread_cost_usd"] == pytest.approx(0.30)
     assert trade["net_pnl_usd"] == pytest.approx(-1.30)
+
+
+
+def test_stop_loss_wins_when_both_buy_barriers_touched():
+    data = synthetic_history()
+
+    result = run_backtest(
+        data,
+        strategy=lambda history: "BUY" if len(history) == 1 else "HOLD",
+        starting_balance=100,
+        units=50,
+        slippage_points=0,
+        commission_per_side=0,
+        stop_loss_pips=2,
+        take_profit_pips=4,
+    )
+
+    assert result["trade_count"] == 1
+    assert result["trades"][0]["reason"] == "STOP_LOSS"
+    assert result["trades"][0]["exit_price"] == pytest.approx(1.1000)
+    assert result["assumptions"]["stop_loss_pips"] == 2
+    assert result["assumptions"]["take_profit_pips"] == 4
+
+
+def test_buy_take_profit_can_trigger_without_stop_touch():
+    data = synthetic_history()
+    data.loc[1, "low"] = 1.10015
+    data.loc[1, "high"] = 1.10080
+
+    result = run_backtest(
+        data,
+        strategy=lambda history: "BUY" if len(history) == 1 else "HOLD",
+        starting_balance=100,
+        units=50,
+        slippage_points=0,
+        commission_per_side=0,
+        stop_loss_pips=2,
+        take_profit_pips=4,
+    )
+
+    assert result["trade_count"] == 1
+    assert result["trades"][0]["reason"] == "TAKE_PROFIT"
+    assert result["trades"][0]["exit_price"] == pytest.approx(1.1006)
+
+
+def test_sell_stop_uses_bid_high_plus_spread_ask_approximation():
+    data = synthetic_history()
+    data.loc[1, "spread"] = 10
+    data.loc[1, "low"] = 1.10015
+    data.loc[1, "high"] = 1.10050
+
+    result = run_backtest(
+        data,
+        strategy=lambda history: "SELL" if len(history) == 1 else "HOLD",
+        starting_balance=100,
+        units=50,
+        slippage_points=0,
+        commission_per_side=0,
+        stop_loss_pips=2,
+        take_profit_pips=4,
+    )
+
+    assert result["trade_count"] == 1
+    assert result["trades"][0]["reason"] == "STOP_LOSS"
+    assert result["trades"][0]["exit_price"] == pytest.approx(1.1004)
+
+
+def test_stop_loss_and_take_profit_must_be_enabled_together():
+    with pytest.raises(ValueError, match="must be set together"):
+        run_backtest(
+            synthetic_history(),
+            strategy=lambda history: "HOLD",
+            stop_loss_pips=20,
+        )
