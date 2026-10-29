@@ -86,6 +86,21 @@ def validate_history(df):
     if not valid_ohlc.all():
         raise ValueError("Invalid OHLC prices or spread values")
 
+    if not result["spread"].map(
+        lambda value: math.isfinite(float(value)) and float(value) >= 0
+    ).all():
+        raise ValueError("Spread must contain finite, nonnegative values")
+
+    aligned = (
+        (result["time_utc"].dt.minute % BAR_MINUTES == 0)
+        & (result["time_utc"].dt.second == 0)
+        & (result["time_utc"].dt.microsecond == 0)
+    )
+    if not aligned.all():
+        raise ValueError(
+            f"Candle timestamps must align to {BAR_MINUTES}-minute boundaries"
+        )
+
     return result.reset_index(drop=True)
 
 
@@ -185,25 +200,28 @@ def run_backtest(
     """
     df = validate_history(history)
 
+    try:
+        starting_balance = float(starting_balance)
+        units = float(units)
+        point_size = float(point_size)
+        slippage_points = float(slippage_points)
+        commission_per_side = float(commission_per_side)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Backtest numeric settings must be valid numbers") from exc
+
     for name, value in [
         ("starting_balance", starting_balance),
         ("units", units),
         ("point_size", point_size),
     ]:
-        if not math.isfinite(float(value)) or float(value) <= 0:
+        if not math.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be positive and finite")
 
-    if (
-        not math.isfinite(float(slippage_points))
-        or slippage_points < 0
-    ):
-        raise ValueError("slippage_points must be nonnegative")
+    if not math.isfinite(slippage_points) or slippage_points < 0:
+        raise ValueError("slippage_points must be finite and nonnegative")
 
-    if (
-        not math.isfinite(float(commission_per_side))
-        or commission_per_side < 0
-    ):
-        raise ValueError("commission must be nonnegative")
+    if not math.isfinite(commission_per_side) or commission_per_side < 0:
+        raise ValueError("commission must be finite and nonnegative")
 
     if not callable(strategy):
         raise ValueError("strategy must be a callable function")
@@ -423,6 +441,17 @@ def run_backtest(
         ),
         "max_drawdown_pct": max_drawdown * 100,
         "rejected_entries": rejected_entries,
+        "assumptions": {
+            "symbol": SYMBOL,
+            "timeframe": TIMEFRAME,
+            "point_size": point_size,
+            "units_per_trade": units,
+            "slippage_points_per_fill": slippage_points,
+            "commission_per_side_usd": commission_per_side,
+            "max_open_positions": 1,
+            "leverage_used": False,
+            "fill_timing": "next_candle_open",
+        },
         "trades": trades,
         "equity_curve": equity_curve,
     }
