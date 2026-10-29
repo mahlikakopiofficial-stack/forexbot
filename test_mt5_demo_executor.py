@@ -467,3 +467,20 @@ def test_broker_enabled_eurusd_variant_is_supported_by_allowlist():
 
     assert result["position_ticket"] == 42
     assert api.last_request["symbol"] == "EURUSD#"
+
+
+@pytest.mark.parametrize("symbol", ["EURUSD", "EURUSD#"])
+def test_last_based_chart_is_rejected_for_every_supported_symbol(symbol):
+    api, _ = setup_executor()
+    api.info.chart_mode = 1  # Last-based charts are not safe for this Bid-based model.
+    config = DemoConfig(
+        expected_server="XMGlobal-MT5 2",
+        orders_enabled=True,
+        server_timezone="Europe/Athens",
+        max_spread_points=30,
+        allowed_symbols=(symbol,),
+    )
+    executor = MT5DemoExecutor(api, config, now_fn=lambda: api.now)
+
+    with pytest.raises(DemoExecutionError, match="not Bid-based"):
+        executor._symbol_info(symbol)
