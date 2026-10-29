@@ -23,12 +23,12 @@ def ema_crossover_signal(closes, fast: int = 12, slow: int = 26) -> str:
         raise ValueError("EMA periods must satisfy 2 <= fast < slow and slow >= 3")
 
     series = pd.Series(list(closes), dtype="float64")
-    if len(series) < slow_value + 2:
-        return "HOLD"
     if not series.map(
         lambda value: math.isfinite(float(value)) and float(value) > 0
     ).all():
         raise ValueError("EMA input contains invalid close prices")
+    if len(series) < slow_value + 2:
+        return "HOLD"
 
     fast_line = series.ewm(span=fast_value, adjust=False).mean()
     slow_line = series.ewm(span=slow_value, adjust=False).mean()
