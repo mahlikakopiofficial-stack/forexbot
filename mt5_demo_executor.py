@@ -24,7 +24,7 @@ except ImportError:  # Keep safety logic unit-testable without the native packag
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_MT5_PATH = r"C:\Program Files\MetaTrader 5\terminal64.exe"
-SUPPORTED_SYMBOLS = frozenset({"EURUSD"})
+SUPPORTED_SYMBOLS = frozenset({"EURUSD", "EURUSD#"})
 ENABLE_TOKEN = "YES_DEMO_ONLY"
 
 
