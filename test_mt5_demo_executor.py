@@ -52,7 +52,7 @@ class FakeMT5:
             equity=10000.0,
         )
         self.info = SimpleNamespace(
-            visible=True, point=0.00001, digits=5, trade_mode=4,
+            visible=True, point=0.01, digits=2, trade_mode=4,
             volume_min=0.01, volume_max=100.0, volume_step=0.01,
             trade_stops_level=0,
             chart_mode=self.SYMBOL_CHART_MODE_BID,
@@ -66,7 +66,7 @@ class FakeMT5:
         )
         self.raw_tick_time = wall_label.timestamp()
         self.tick = SimpleNamespace(
-            bid=1.10000, ask=1.10020,
+            bid=4000.00, ask=4000.20,
             time=self.raw_tick_time,
             time_msc=int(self.raw_tick_time * 1000),
         )
@@ -94,10 +94,10 @@ class FakeMT5:
         return self._last_error
 
     def symbol_info(self, symbol):
-        return self.info if symbol in {"EURUSD", "EURUSD#"} else None
+        return self.info if symbol in {"GOLD", "GOLD#"} else None
 
     def symbol_info_tick(self, symbol):
-        return self.tick if symbol in {"EURUSD", "EURUSD#"} else None
+        return self.tick if symbol in {"GOLD#", "GOLD#"} else None
 
     def symbol_select(self, symbol, selected):
         return True
@@ -172,7 +172,7 @@ def test_real_account_is_rejected_before_any_order():
     api, executor = setup_executor(real_account=True)
     with pytest.raises(DemoExecutionError, match="not confirmed as a demo"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
     assert api.send_calls == 0
 
@@ -187,7 +187,7 @@ def test_order_gate_defaults_to_off():
     executor = MT5DemoExecutor(api, config, now_fn=lambda: api.now)
     with pytest.raises(DemoExecutionError, match="Order submission is disabled"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
     assert api.send_calls == 0
 
@@ -195,24 +195,24 @@ def test_order_gate_defaults_to_off():
 def test_order_check_then_protected_demo_order():
     api, executor = setup_executor()
     result = executor.place_protected_market_order(
-        "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        "GOLD#", "BUY", 0.01, 3990.00, 4010.00
     )
     assert result["position_ticket"] == 42
     assert api.check_calls == 1
     assert api.send_calls == 1
-    assert api.last_request["sl"] == 1.09900
-    assert api.last_request["tp"] == 1.10200
+    assert api.last_request["sl"] == 3990.00
+    assert api.last_request["tp"] == 4010.00
 
 
 def test_existing_position_prevents_duplicate_order():
     api, executor = setup_executor()
     api.positions.append(SimpleNamespace(
-        ticket=7, symbol="EURUSD", magic=1, volume=0.01,
-        type=api.ORDER_TYPE_BUY, sl=1.09, tp=1.12,
+        ticket=7, symbol="GOLD#", magic=1, volume=0.01,
+        type=api.ORDER_TYPE_BUY, sl=3990.00, tp=4010.00,
     ))
     with pytest.raises(DemoExecutionError, match="already has an open"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
     assert api.send_calls == 0
 
@@ -221,17 +221,17 @@ def test_bad_volume_is_rejected_before_order_send():
     api, executor = setup_executor()
     with pytest.raises(DemoExecutionError, match="does not align"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.015, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.015, 3990.00, 4010.00
         )
     assert api.send_calls == 0
 
 
 def test_wide_spread_is_rejected_before_order_send():
     api, executor = setup_executor()
-    api.tick.ask = 1.10100
+    api.tick.ask = 4001.00
     with pytest.raises(DemoExecutionError, match="Spread too wide"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
     assert api.send_calls == 0
 
@@ -240,7 +240,7 @@ def test_order_check_rejection_never_sends_order():
     api, executor = setup_executor(check_retcode=10016)
     with pytest.raises(DemoExecutionError, match="order_check rejected"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
     assert api.send_calls == 0
 
@@ -249,7 +249,7 @@ def test_unknown_send_result_is_not_retried():
     api, executor = setup_executor(send_result=False)
     with pytest.raises(OrderResultUncertain, match="Do not retry"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
     assert api.send_calls == 1
 
@@ -257,21 +257,21 @@ def test_unknown_send_result_is_not_retried():
 def test_executor_only_closes_its_own_position():
     api, executor = setup_executor()
     api.positions.append(SimpleNamespace(
-        ticket=77, symbol="EURUSD", magic=999, volume=0.01,
-        type=api.POSITION_TYPE_BUY, sl=1.09, tp=1.12,
+        ticket=77, symbol="GOLD#", magic=999, volume=0.01,
+        type=api.POSITION_TYPE_BUY, sl=3990.00, tp=4010.00,
     ))
     with pytest.raises(DemoExecutionError, match="not owned by this bot"):
-        executor.close_managed_position("EURUSD", 77)
+        executor.close_managed_position("GOLD#", 77)
     assert api.send_calls == 0
 
 
 def test_managed_position_can_be_closed_and_is_verified():
     api, executor = setup_executor()
     api.positions.append(SimpleNamespace(
-        ticket=42, symbol="EURUSD", magic=executor.config.magic, volume=0.01,
-        type=api.POSITION_TYPE_BUY, sl=1.09, tp=1.12,
+        ticket=42, symbol="GOLD#", magic=executor.config.magic, volume=0.01,
+        type=api.POSITION_TYPE_BUY, sl=3990.00, tp=4010.00,
     ))
-    result = executor.close_managed_position("EURUSD", 42)
+    result = executor.close_managed_position("GOLD#", 42)
     assert result["deal"] == 12
     assert api.send_calls == 1
     assert api.positions == []
@@ -283,7 +283,7 @@ def test_market_execution_omits_price_from_order_request():
     api.info.trade_exemode = api.SYMBOL_TRADE_EXECUTION_MARKET
 
     executor.place_protected_market_order(
-        "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        "GOLD#", "BUY", 0.01, 3990.00, 4010.00
     )
 
     assert "price" not in api.last_request
@@ -294,7 +294,7 @@ def test_post_send_verification_failure_is_uncertain_not_retried():
 
     with pytest.raises(OrderResultUncertain, match="Do not retry|verification failed"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
 
     assert api.send_calls == 1
@@ -306,7 +306,7 @@ def test_account_switch_to_real_after_order_check_is_blocked_before_send():
 
     with pytest.raises(DemoExecutionError, match="not confirmed as a demo"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
 
     assert api.check_calls == 1
@@ -320,7 +320,7 @@ def test_last_price_chart_mode_is_rejected_for_bid_based_model():
 
     with pytest.raises(DemoExecutionError, match="not Bid-based"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
 
     assert api.send_calls == 0
@@ -338,7 +338,7 @@ def test_expected_demo_login_mismatch_is_rejected():
 
     with pytest.raises(DemoExecutionError, match="does not match MT5_DEMO_LOGIN"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
 
     assert api.send_calls == 0
@@ -351,7 +351,7 @@ def test_account_login_change_during_session_is_rejected():
 
     with pytest.raises(DemoExecutionError, match="account changed"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
 
     assert api.send_calls == 0
@@ -361,13 +361,13 @@ def test_account_login_change_during_session_is_rejected():
 def test_managed_close_refuses_unreconciled_pending_orders():
     api, executor = setup_executor()
     api.positions.append(SimpleNamespace(
-        ticket=42, symbol="EURUSD", magic=executor.config.magic, volume=0.01,
-        type=api.POSITION_TYPE_BUY, sl=1.09, tp=1.12,
+        ticket=42, symbol="GOLD#", magic=executor.config.magic, volume=0.01,
+        type=api.POSITION_TYPE_BUY, sl=3990.00, tp=4010.00,
     ))
-    api.pending.append(SimpleNamespace(ticket=99, symbol="EURUSD"))
+    api.pending.append(SimpleNamespace(ticket=99, symbol="GOLD#"))
 
     with pytest.raises(DemoExecutionError, match="pending orders"):
-        executor.close_managed_position("EURUSD", 42)
+        executor.close_managed_position("GOLD#", 42)
 
     assert api.send_calls == 0
 
@@ -375,11 +375,11 @@ def test_managed_close_refuses_unreconciled_pending_orders():
 
 def test_buy_stop_distance_is_measured_from_bid_not_ask():
     api, executor = setup_executor()
-    api.info.trade_stops_level = 50  # 5 pips for a 5-digit EURUSD symbol
+    api.info.trade_stops_level = 50  # 5 pips for a 5-digit GOLD# symbol
 
     with pytest.raises(DemoExecutionError, match="BUY stop-loss/take-profit"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09960, 1.10200
+            "GOLD#", "BUY", 0.01, 3999.60, 4010.00
         )
 
     assert api.send_calls == 0
@@ -387,11 +387,11 @@ def test_buy_stop_distance_is_measured_from_bid_not_ask():
 
 def test_sell_stop_distance_is_measured_from_ask_not_bid():
     api, executor = setup_executor()
-    api.info.trade_stops_level = 50  # 5 pips for a 5-digit EURUSD symbol
+    api.info.trade_stops_level = 50  # 5 pips for a 5-digit GOLD# symbol
 
     with pytest.raises(DemoExecutionError, match="SELL stop-loss/take-profit"):
         executor.place_protected_market_order(
-            "EURUSD", "SELL", 0.01, 1.10060, 1.09950
+            "GOLD#", "SELL", 0.01, 4000.60, 3999.50
         )
 
     assert api.send_calls == 0
@@ -409,7 +409,7 @@ def test_invalid_executor_spread_config_fails_closed():
 
     with pytest.raises(DemoExecutionError, match="Maximum spread"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
 
     assert api.send_calls == 0
@@ -420,7 +420,7 @@ def test_order_check_exception_is_a_pre_send_rejection():
 
     with pytest.raises(DemoExecutionError, match="order_check raised"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
 
     assert api.send_calls == 0
@@ -431,7 +431,7 @@ def test_order_send_exception_is_uncertain_and_never_retried():
 
     with pytest.raises(OrderResultUncertain, match="Do not retry"):
         executor.place_protected_market_order(
-            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+            "GOLD#", "BUY", 0.01, 3990.00, 4010.00
         )
 
     assert api.send_calls == 1
@@ -439,37 +439,37 @@ def test_order_send_exception_is_uncertain_and_never_retried():
 
 
 def test_config_from_env_selects_one_explicit_allowed_symbol(monkeypatch):
-    monkeypatch.setenv("FOREX_SYMBOL", "EURUSD#")
+    monkeypatch.setenv("FOREX_SYMBOL", "GOLD#")
     monkeypatch.delenv("FOREX_DEMO_SYMBOL", raising=False)
     monkeypatch.delenv("MT5_DEMO_ORDER_ENABLED", raising=False)
     monkeypatch.delenv("MT5_DEMO_LOGIN", raising=False)
 
     config = DemoConfig.from_env()
-    assert config.allowed_symbols == ("EURUSD#",)
+    assert config.allowed_symbols == ("GOLD#",)
     assert config.orders_enabled is False
     config.validate()
 
 
-def test_broker_enabled_eurusd_variant_is_supported_by_allowlist():
+def test_broker_enabled_gold_variant_is_supported_by_allowlist():
     api, _ = setup_executor()
     config = DemoConfig(
         expected_server="XMGlobal-MT5 2",
         orders_enabled=True,
         server_timezone="Europe/Athens",
         max_spread_points=30,
-        allowed_symbols=("EURUSD#",),
+        allowed_symbols=("GOLD#",),
     )
     executor = MT5DemoExecutor(api, config, now_fn=lambda: api.now)
 
     result = executor.place_protected_market_order(
-        "EURUSD#", "BUY", 0.01, 1.09900, 1.10200
+        "GOLD#", "BUY", 0.01, 3990.00, 4010.00
     )
 
     assert result["position_ticket"] == 42
-    assert api.last_request["symbol"] == "EURUSD#"
+    assert api.last_request["symbol"] == "GOLD#"
 
 
-@pytest.mark.parametrize("symbol", ["EURUSD", "EURUSD#"])
+@pytest.mark.parametrize("symbol", ["GOLD", "GOLD#"])
 def test_last_based_chart_is_rejected_for_every_supported_symbol(symbol):
     api, _ = setup_executor()
     api.info.chart_mode = 1  # Last-based charts are not safe for this Bid-based model.
