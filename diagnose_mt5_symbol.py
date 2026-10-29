@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import time
 
 import MetaTrader5 as mt5
 
@@ -94,6 +95,30 @@ def main() -> int:
                 print(f"\n=== {name} ===\nsymbol_info=None; error={mt5.last_error()}")
                 continue
 
+            selected_before = bool(getattr(info, "select", False))
+            if not selected_before:
+                selection_ok = bool(mt5.symbol_select(name, True))
+                print(f"\n{name}: symbol_select(True)={selection_ok}")
+                if not selection_ok:
+                    print("Could not select symbol:", mt5.last_error())
+                    continue
+                # Symbol metadata may update immediately, but the first tick can
+                # arrive shortly afterwards. Wait a bounded 5 seconds only.
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline:
+                    info = mt5.symbol_info(name)
+                    tick = mt5.symbol_info_tick(name)
+                    if (
+                        info is not None and tick is not None
+                        and float(tick.bid) > 0 and float(tick.ask) >= float(tick.bid)
+                    ):
+                        break
+                    time.sleep(0.25)
+                info = mt5.symbol_info(name)
+                if info is None:
+                    print("Symbol info disappeared after selection.")
+                    continue
+
             disabled_value = getattr(mt5, "SYMBOL_TRADE_MODE_DISABLED", 0)
             long_value = getattr(mt5, "SYMBOL_TRADE_MODE_LONGONLY", 1)
             short_value = getattr(mt5, "SYMBOL_TRADE_MODE_SHORTONLY", 2)
@@ -111,6 +136,7 @@ def main() -> int:
             print("Reported symbol name:", info.name)
             print("Path:", info.path)
             print("Visible / selected:", info.visible, "/", info.select)
+            print("Was selected before diagnostic:", selected_before)
             print("Trade mode raw:", info.trade_mode)
             print("Trade mode meaning:", modes.get(info.trade_mode, "UNKNOWN"))
             print("Chart mode:", info.chart_mode)
@@ -124,8 +150,10 @@ def main() -> int:
             print("Bid / ask:", info.bid, "/", info.ask)
 
             tick = mt5.symbol_info_tick(name)
-            if tick is None:
-                print("Tick unavailable:", mt5.last_error())
+            if tick is None or float(tick.bid) <= 0 or float(tick.ask) < float(tick.bid):
+                print("Usable tick unavailable after selection:", mt5.last_error())
+                if tick is not None:
+                    print("Returned bid/ask:", tick.bid, "/", tick.ask)
                 continue
 
             raw_seconds = (
