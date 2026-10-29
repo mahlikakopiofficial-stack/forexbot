@@ -187,6 +187,40 @@ def record_event(event_key, candle_time, action, event_state, details, path=STAT
         ))
 
 
+def validate_latest_bar_freshness(
+    bars: pd.DataFrame,
+    now_utc: datetime | None = None,
+    timeframe_minutes: int = 15,
+    max_stale_minutes: int = 30,
+) -> None:
+    """Reject a stale/future last completed candle before any signal can act."""
+    if bars.empty or "time_utc" not in bars.columns:
+        raise DemoExecutionError("Cannot assess freshness: no completed candles.")
+    if timeframe_minutes <= 0 or max_stale_minutes <= 0:
+        raise ValueError("Freshness limits must be positive.")
+    now = pd.Timestamp(now_utc or utc_now())
+    if now.tzinfo is None:
+        raise ValueError("now_utc must be timezone-aware")
+    now = now.tz_convert("UTC")
+    latest_open = pd.Timestamp(bars["time_utc"].iloc[-1])
+    if latest_open.tzinfo is None:
+        raise DemoExecutionError("Candle timestamp has no timezone.")
+    latest_open = latest_open.tz_convert("UTC")
+    expected_close = latest_open + pd.Timedelta(minutes=timeframe_minutes)
+    age_minutes = (now - expected_close).total_seconds() / 60.0
+    if age_minutes < -1:
+        raise DemoExecutionError(
+            f"Latest completed candle closes in the future "
+            f"({-age_minutes:.1f} minutes); refusing signal evaluation."
+        )
+    if age_minutes > max_stale_minutes:
+        raise DemoExecutionError(
+            f"Latest M{timeframe_minutes} candle is stale: expected close "
+            f"{expected_close.isoformat()}, age={age_minutes:.1f} minutes "
+            f"(limit {max_stale_minutes}); refusing signal evaluation."
+        )
+
+
 def get_closed_bars(api, symbol: str, timeframe, count: int, timezone_name: str):
     rates = api.copy_rates_from_pos(symbol, timeframe, 1, count)
     if rates is None or len(rates) == 0:
@@ -231,8 +265,7 @@ def get_closed_bars(api, symbol: str, timeframe, count: int, timezone_name: str)
         raise DemoExecutionError(
             "Converted timestamps are not aligned to M15; check server timezone."
         )
-    if df["time_utc"].iloc[-1] > pd.Timestamp(utc_now()) + pd.Timedelta(minutes=1):
-        raise DemoExecutionError("Latest completed candle is future-dated; refusing signal evaluation.")
+    validate_latest_bar_freshness(df, timeframe_minutes=15, max_stale_minutes=30)
     return df
 
 
