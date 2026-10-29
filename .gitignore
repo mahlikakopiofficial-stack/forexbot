@@ -7,4 +7,4 @@ data/*.csv
 data/*.db
 data/*.sqlite*
 logs/*.log
-reports/
+reports/data/*.lock
