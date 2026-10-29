@@ -316,6 +316,10 @@ class MT5DemoExecutor:
                 f"MT5 order_check rejected all filling modes: {last_check}"
             )
 
+        # Re-check the connected account immediately before the side effect.
+        # This narrows the window in which a terminal account switch could
+        # invalidate the original preflight.
+        self.preflight()
         result = self.api.order_send(selected_request)
         if result is None:
             raise OrderResultUncertain(
