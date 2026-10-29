@@ -345,39 +345,48 @@ class MT5DemoExecutor:
         if retcode != done:
             raise DemoExecutionError(f"MT5 rejected the order: {details}")
 
-        # Verify the broker's position state after the server reports DONE.
+        # After a successful send, all verification failures are UNCERTAIN,
+        # not ordinary rejections: an order may exist and must never be retried.
         symbol = str(selected_request["symbol"])
-        positions = self.get_positions(symbol)
-        if expected_position_ticket is None:
-            own = [
-                p for p in positions
-                if int(getattr(p, "magic", -1)) == self.config.magic
-            ]
-            if len(own) != 1:
-                raise OrderResultUncertain(
-                    "Order reported DONE but exactly one managed position "
-                    "could not be verified; inspect MT5 manually."
+        try:
+            positions = self.get_positions(symbol)
+            if expected_position_ticket is None:
+                own = [
+                    p for p in positions
+                    if int(getattr(p, "magic", -1)) == self.config.magic
+                ]
+                if len(own) != 1:
+                    raise OrderResultUncertain(
+                        "Order reported DONE but exactly one managed position "
+                        "could not be verified; inspect MT5 manually."
+                    )
+                position = own[0]
+                if (
+                    float(getattr(position, "sl", 0) or 0) <= 0
+                    or float(getattr(position, "tp", 0) or 0) <= 0
+                ):
+                    raise OrderResultUncertain(
+                        "Broker position is missing its required stop-loss or "
+                        "take-profit; stop the runner and inspect MT5 manually."
+                    )
+                details["position_ticket"] = getattr(position, "ticket", None)
+            else:
+                still_open = any(
+                    int(getattr(p, "ticket", -1)) == int(expected_position_ticket)
+                    for p in positions
                 )
-            position = own[0]
-            if (
-                float(getattr(position, "sl", 0) or 0) <= 0
-                or float(getattr(position, "tp", 0) or 0) <= 0
-            ):
-                raise OrderResultUncertain(
-                    "Broker position is missing its required stop-loss or "
-                    "take-profit; stop the runner and inspect MT5 manually."
-                )
-            details["position_ticket"] = getattr(position, "ticket", None)
-        else:
-            still_open = any(
-                int(getattr(p, "ticket", -1)) == int(expected_position_ticket)
-                for p in positions
-            )
-            if still_open:
-                raise OrderResultUncertain(
-                    "Close order reported DONE but the position is still open; "
-                    "inspect MT5 manually before any further action."
-                )
+                if still_open:
+                    raise OrderResultUncertain(
+                        "Close order reported DONE but the position is still open; "
+                        "inspect MT5 manually before any further action."
+                    )
+        except OrderResultUncertain:
+            raise
+        except Exception as exc:
+            raise OrderResultUncertain(
+                "Order was sent and the response was DONE, but broker state "
+                f"verification failed: {exc}. Do not retry; inspect MT5 manually."
+            ) from exc
         return details
 
     def place_protected_market_order(
@@ -418,8 +427,11 @@ class MT5DemoExecutor:
         digits = quote["digits"]
         point = quote["point"]
         stop_distance = float(getattr(info, "trade_stops_level", 0) or 0) * point
-        sl = round(float(stop_loss), digits)
-        tp = round(float(take_profit), digits)
+        try:
+            sl = round(float(stop_loss), digits)
+            tp = round(float(take_profit), digits)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise DemoExecutionError("Invalid stop-loss/take-profit values") from exc
         if not all(math.isfinite(v) and v > 0 for v in (sl, tp)):
             raise DemoExecutionError("Stop-loss and take-profit must be positive")
 
@@ -515,7 +527,7 @@ def main() -> int:
         "command", choices=["preflight"],
         help="preflight checks the existing MT5 terminal/account without trading",
     )
-    args = parser.parse_args()
+    parser.parse_args()
     if mt5 is None:
         print("ERROR: MetaTrader5 Python package is not installed.")
         return 2
