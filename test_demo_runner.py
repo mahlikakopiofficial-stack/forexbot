@@ -5,6 +5,8 @@ import pytest
 
 from demo_runner import (
     calculate_protective_prices,
+    DemoExecutionError,
+    SingleInstanceLock,
     ema_crossover_signal,
     init_state_db,
     record_event,
@@ -68,3 +70,18 @@ def test_runner_state_persists_last_processed_bar(tmp_path):
     assert state_get("last_processed_candle_utc", db) is None
     state_set("last_processed_candle_utc", "2026-10-29T09:15:00Z", db)
     assert state_get("last_processed_candle_utc", db) == "2026-10-29T09:15:00Z"
+
+
+
+def test_runner_lock_prevents_second_instance_and_releases(tmp_path):
+    lock_path = tmp_path / "demo_runner.lock"
+    first = SingleInstanceLock(lock_path).acquire()
+    try:
+        second = SingleInstanceLock(lock_path)
+        with pytest.raises(DemoExecutionError, match="already running"):
+            second.acquire()
+    finally:
+        first.release()
+
+    with SingleInstanceLock(lock_path):
+        pass
