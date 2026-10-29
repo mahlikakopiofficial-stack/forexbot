@@ -34,7 +34,9 @@ from mt5_demo_executor import (
 
 
 STATE_DB = BASE_DIR / "data" / "demo_runner.sqlite3"
-SYMBOL = os.environ.get("FOREX_DEMO_SYMBOL", "EURUSD").strip()
+SYMBOL = os.environ.get(
+    "FOREX_SYMBOL", os.environ.get("FOREX_DEMO_SYMBOL", "EURUSD")
+).strip()
 TIMEFRAME_LABEL = "M15"
 TIMEFRAME = getattr(mt5, "TIMEFRAME_M15", None) if mt5 is not None else None
 FAST_EMA = int(os.environ.get("FOREX_DEMO_FAST_EMA", "12"))
