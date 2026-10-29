@@ -219,8 +219,11 @@ class MT5DemoExecutor:
         if not math.isfinite(point) or point <= 0 or digits < 0:
             raise DemoExecutionError(f"Invalid point/digits for {symbol}")
 
+        trade_mode = getattr(info, "trade_mode", None)
+        if trade_mode is None:
+            raise DemoExecutionError(f"MT5 did not expose trade mode for {symbol}")
         disabled = getattr(self.api, "SYMBOL_TRADE_MODE_DISABLED", 0)
-        if getattr(info, "trade_mode", None) == disabled:
+        if trade_mode == disabled:
             raise DemoExecutionError(f"Trading is disabled for {symbol}")
 
         # This project stores and backtests EURUSD OHLC as Bid prices.
@@ -488,7 +491,8 @@ class MT5DemoExecutor:
                 raise DemoExecutionError(
                     "BUY requires stop-loss below bid and take-profit above ask"
                 )
-            if ask - sl < stop_distance or tp - ask < stop_distance:
+            # Stops on a BUY position are evaluated against Bid.
+            if bid - sl < stop_distance or tp - bid < stop_distance:
                 raise DemoExecutionError(
                     "BUY stop-loss/take-profit violates broker stop distance"
                 )
@@ -499,7 +503,8 @@ class MT5DemoExecutor:
                 raise DemoExecutionError(
                     "SELL requires stop-loss above ask and take-profit below bid"
                 )
-            if sl - bid < stop_distance or bid - tp < stop_distance:
+            # Stops on a SELL position are evaluated against Ask.
+            if sl - ask < stop_distance or ask - tp < stop_distance:
                 raise DemoExecutionError(
                     "SELL stop-loss/take-profit violates broker stop distance"
                 )
