@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 import pandas as pd
 
+import demo_runner
 from demo_runner import (
     calculate_protective_prices,
     validate_latest_bar_freshness,
@@ -16,7 +17,26 @@ from demo_runner import (
     unresolved_events,
     state_get,
     state_set,
+    last_processed_state_key,
+    validate_settings,
 )
+
+
+@pytest.mark.parametrize("symbol", ["EURUSD", "EURUSD#"])
+def test_runner_accepts_allowlisted_symbol(monkeypatch, symbol):
+    monkeypatch.setattr(demo_runner, "SYMBOL", symbol)
+    validate_settings()
+
+
+@pytest.mark.parametrize("symbol", ["", "GBPUSD", "EURUSD.pro"])
+def test_runner_rejects_unlisted_symbol(monkeypatch, symbol):
+    monkeypatch.setattr(demo_runner, "SYMBOL", symbol)
+    with pytest.raises(ValueError, match="Unsupported FOREX_SYMBOL"):
+        validate_settings()
+
+
+def test_last_processed_checkpoint_is_scoped_per_symbol():
+    assert last_processed_state_key("EURUSD") != last_processed_state_key("EURUSD#")
 
 
 def test_ema_crossover_uses_only_latest_completed_close_values():
