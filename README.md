@@ -84,6 +84,32 @@ before interpreting results. The executor never switches accounts; the order
 gate remains disabled unless the explicit token documented below is set.
 Preflight and diagnostics do not submit orders.
 
+## Expand the history before judging strategy quality
+
+The first walk-forward report used only 5,000 M15 candles, roughly a few months
+of broker history. That sample is too short to establish robust strategy
+performance. The history sync now requests 20,000 completed candles by default;
+it can be adjusted locally with `FOREX_HISTORY_BARS` (allowed range 100 to
+100000). MT5 may return fewer bars if its chart-history limit is lower.
+
+Keep MT5 open and connected to the intended demo account, then run:
+
+```powershell
+$env:FOREX_SYMBOL = "EURUSD#"
+$env:FOREX_HISTORY_BARS = "20000"
+python .\\sync_history.py
+python .\\verify_store.py
+python .\\backtest.py audit
+python .\\walk_forward_ema.py --fast 12 --slow 26 --folds 5
+```
+
+Sync is additive: existing candles are checked for conflicts and are not silently
+overwritten. Check the returned count and first/last candle timestamps. If fewer
+than 20,000 bars are returned, raise MT5's "Max bars in chart" setting and sync
+again. Review the audit's gaps before interpreting results; weekend/market
+closures are expected, but unexpected gaps should be investigated. This remains
+paper research only; more historical data cannot guarantee a profitable edge.
+
 ## Fixed-parameter walk-forward check
 
 After the chronological split report, run the fixed EMA settings through five
