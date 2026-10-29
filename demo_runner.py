@@ -508,6 +508,17 @@ class SingleInstanceLock:
         return False
 
 
+def configure_logging() -> None:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)sZ %(levelname)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+    formatter.converter = time.gmtime
+    handler.setFormatter(formatter)
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="M15 EMA-crossover integration runner, MT5 demo-only."
@@ -563,10 +574,7 @@ def main() -> int:
             # Establish the UTC-day baseline before waiting for a signal.
             daily_limits(STATE_DB, float(account.equity))
 
-            logging.basicConfig(
-                level=logging.INFO,
-                format="%(asctime)sZ %(levelname)s %(message)s",
-            )
+            configure_logging()
             logging.info(
                 "Demo runner starting: server=%s mode=%s orders_enabled=%s "
                 "strategy=EMA(%s,%s) symbol=%s timeframe=%s",
