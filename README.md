@@ -1,8 +1,9 @@
 # Forex Research / MT5 Demo Lab
 
-This repository is an educational M15 research project for a selected broker symbol (initially EURUSD). It contains
-historical-data utilities, a paper backtester, and a separate MT5 **demo-only**
-execution path. No profitability claim has been established.
+This repository is an educational M15 Forex research project for the selected broker symbol (currently EURUSD#). It contains
+historical-data utilities, a session-VWAP crossover strategy, paper backtests,
+walk-forward research, and a separate MT5 **demo-only** execution path. No
+profitability claim has been established.
 
 ## Safety boundaries
 
@@ -24,10 +25,14 @@ execution path. No profitability claim has been established.
   halts and requires manual reconciliation in MT5 instead of retrying.
 - Never enable or use this project to send real-account orders.
 
-The built-in EMA crossover is a **plumbing/test strategy**, not a validated
-strategy, recommendation, or indication that the system will make money.
-Default EMA and stop/target values are illustrative and must not be taken as
-evidence of performance.
+The selected strategy is a **daily session VWAP close-cross on M15**. A BUY
+signal occurs when a completed candle closes above VWAP after the prior close
+was at or below VWAP; a SELL signal occurs on the opposite crossing. An
+opposite crossing closes and reverses the current side, with signals filled at
+the next candle open in historical simulation. Spot Forex has no single
+centralized traded-volume tape, so the strategy weights VWAP with MT5
+`tick_volume` as an approximation. The 20-pip stop and 40-pip target are
+provisional test defaults, not validated settings or a profit claim.
 
 ## Install and test
 
@@ -110,6 +115,42 @@ again. Review the audit's gaps before interpreting results; weekend/market
 closures are expected, but unexpected gaps should be investigated. This remains
 paper research only; more historical data cannot guarantee a profitable edge.
 
+## Current strategy: M15 session VWAP crossing
+
+The runner now computes a broker-local-day session VWAP using typical price
+`(high + low + close) / 3`, weighted by MT5 tick volume. It emits BUY when a
+completed M15 close crosses from at/below to above that session VWAP and SELL
+when it crosses from at/above to below. Crosses across the session reset itself
+are ignored. In paper backtests, orders fill on the next candle open and an
+opposite crossing closes the old trade and opens the reverse side if the
+1:1 no-leverage cash limit permits it.
+
+The demo runner always reads completed candles; order submission remains off
+unless separately opted into the explicit demo-only order gate. Provisional
+stop/target defaults are 20/40 pips, volume 0.01 lots, no more than three
+entries per UTC day, and a daily equity-loss block of 25 account-currency units.
+These are safety/integration defaults, not an optimized risk plan.
+
+First run the historical paper backtest:
+
+```powershell
+$env:FOREX_SYMBOL = "EURUSD#"
+python .\\run_vwap_backtest.py
+```
+
+Then run five chronological windows with the same fixed VWAP rule:
+
+```powershell
+python .\\walk_forward_vwap.py --folds 5
+```
+
+Reports are written to `reports/vwap_m15` and
+`reports/vwap_walk_forward_m15`. Review the costs, trades, fold-to-fold
+consistency, and data gaps before continuing. MT5 tick volume is only an FX
+proxy, and spread/slippage estimates from M15 bars are not tick-accurate.
+These paper results do not guarantee future performance. Keep broker orders
+disabled while evaluating the strategy.
+
 ## Fixed-parameter walk-forward check
 
 After the chronological split report, run the fixed EMA settings through five
@@ -184,9 +225,10 @@ python .\demo_runner.py --once
 ```
 
 For continuous demo operation, use `--loop` instead of `--once`. The runner
-only evaluates a newly completed M15 candle, and uses an illustrative EMA(12,
-26) crossover with 0.01-lot volume, 20-pip stop and 40-pip target defaults.
-These defaults are for integration testing and are not performance-validated.
+only evaluates a newly completed M15 candle and uses the VWAP crossing rule
+described above, with provisional 0.01-lot volume, 20-pip stop and 40-pip
+target defaults. These settings are for demo integration and are not
+performance-validated.
 The runner also defaults to at most three entries per UTC day and a daily
 equity-loss block in the account's currency. The daily equity baseline is
 recorded when the runner first observes each UTC date; this is not a
