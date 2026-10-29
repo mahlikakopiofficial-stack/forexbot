@@ -5,13 +5,13 @@ import pytest
 import pandas as pd
 
 import demo_runner
+from ema_strategy import ema_crossover_signal
 from demo_runner import (
     calculate_protective_prices,
     validate_latest_bar_freshness,
     DemoExecutionError,
     SingleInstanceLock,
     decide_existing_position_action,
-    ema_crossover_signal,
     init_state_db,
     record_event,
     unresolved_events,
@@ -118,13 +118,11 @@ def test_runner_lock_prevents_second_instance_and_releases(tmp_path):
         ("HOLD", "SELL", "HOLD"),
         ("BUY", "BUY", "HOLD"),
         ("SELL", "SELL", "HOLD"),
-        ("SELL", "BUY", "CLOSE_BUY"),
-        ("BUY", "SELL", "CLOSE_SELL"),
+        ("SELL", "BUY", "REVERSE_TO_SELL"),
+        ("BUY", "SELL", "REVERSE_TO_BUY"),
     ],
 )
-def test_existing_position_is_only_closed_on_opposite_signal(
-    signal, direction, expected
-):
+def test_existing_position_reverses_on_opposite_signal(signal, direction, expected):
     assert decide_existing_position_action(signal, direction) == expected
 
 
