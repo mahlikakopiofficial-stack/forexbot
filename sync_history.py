@@ -16,10 +16,10 @@ MT5_PATH = os.environ.get(
     r"C:\Program Files\MetaTrader 5\terminal64.exe",
 )
 
-SYMBOL = os.environ.get("FOREX_SYMBOL", "EURUSD").strip()
-TIMEFRAME_NAME = "M15"
-TIMEFRAME = mt5.TIMEFRAME_M15
-# About 20,000 M15 candles provides several more months of history.
+SYMBOL = os.environ.get("FOREX_SYMBOL", "GOLD#").strip()
+TIMEFRAME_NAME = "M5"
+TIMEFRAME = mt5.TIMEFRAME_M5
+# About 20,000 M5 candles provides several weeks of Gold price history.
 # Override locally with FOREX_HISTORY_BARS if the MT5 terminal has fewer bars available.
 HISTORY_COUNT = int(os.environ.get("FOREX_HISTORY_BARS", "20000"))
 
