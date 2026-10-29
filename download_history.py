@@ -49,7 +49,8 @@ def main():
         output_dir = Path("data")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        output_file = output_dir / "eurusd_m15.csv"
+        symbol_slug = symbol.lower().replace("#", "_")
+        output_file = output_dir / f"{symbol_slug}_m15.csv"
         df.to_csv(output_file, index=False)
 
         print("\nHistorical data downloaded successfully.")
