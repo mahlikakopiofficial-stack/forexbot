@@ -259,3 +259,30 @@ def test_stop_loss_and_take_profit_must_be_enabled_together():
             strategy=lambda history: "HOLD",
             stop_loss_pips=20,
         )
+
+
+def test_opposite_direction_signal_closes_and_reverses_on_next_candle():
+    data = synthetic_history()
+
+    def strategy(history):
+        if len(history) == 1:
+            return "BUY"
+        if len(history) == 3:
+            return "SELL"
+        return "HOLD"
+
+    result = run_backtest(
+        data,
+        strategy=strategy,
+        starting_balance=100,
+        units=50,
+        slippage_points=0,
+        commission_per_side=0,
+    )
+
+    assert result["trade_count"] == 2
+    assert result["trades"][0]["side"] == "BUY"
+    assert result["trades"][0]["reason"] == "OPPOSITE_SIGNAL"
+    assert result["trades"][0]["exit_time"] == data["time_utc"].iloc[3]
+    assert result["trades"][1]["side"] == "SELL"
+    assert result["trades"][1]["entry_time"] == data["time_utc"].iloc[3]
