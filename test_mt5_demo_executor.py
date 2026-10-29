@@ -32,6 +32,7 @@ class FakeMT5:
         self, now, *, real_account=False, send_result=True,
         check_retcode=0, market_execution=False,
         fail_position_read_after_send=False,
+        switch_to_real_on_order_check=False,
     ):
         self.now = now
         self.terminal = SimpleNamespace(
@@ -72,6 +73,7 @@ class FakeMT5:
         self.send_calls = 0
         self.positions_get_calls = 0
         self.fail_position_read_after_send = fail_position_read_after_send
+        self.switch_to_real_on_order_check = switch_to_real_on_order_check
         self.last_request = None
         self._last_error = (1, "fake error")
 
@@ -109,6 +111,8 @@ class FakeMT5:
 
     def order_check(self, request):
         self.check_calls += 1
+        if self.switch_to_real_on_order_check:
+            self.account.trade_mode = 2
         return SimpleNamespace(retcode=self.check_retcode, comment="fake check")
 
     def order_send(self, request):
@@ -282,3 +286,16 @@ def test_post_send_verification_failure_is_uncertain_not_retried():
         )
 
     assert api.send_calls == 1
+
+
+
+def test_account_switch_to_real_after_order_check_is_blocked_before_send():
+    api, executor = setup_executor(switch_to_real_on_order_check=True)
+
+    with pytest.raises(DemoExecutionError, match="not confirmed as a demo"):
+        executor.place_protected_market_order(
+            "EURUSD", "BUY", 0.01, 1.09900, 1.10200
+        )
+
+    assert api.check_calls == 1
+    assert api.send_calls == 0
