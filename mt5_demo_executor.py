@@ -471,6 +471,12 @@ class MT5DemoExecutor:
             "comment": "ForexResearch DEMO",
             "type_time": self.api.ORDER_TIME_GTC,
         }
+        # MT5 Market Execution requests must omit the price field.
+        market_execution = getattr(
+            self.api, "SYMBOL_TRADE_EXECUTION_MARKET", object()
+        )
+        if getattr(info, "trade_exemode", None) == market_execution:
+            request.pop("price", None)
         return self._send_once(request)
 
     def close_managed_position(self, symbol: str, ticket: int) -> dict:
@@ -514,6 +520,12 @@ class MT5DemoExecutor:
             "comment": "ForexResearch DEMO close",
             "type_time": self.api.ORDER_TIME_GTC,
         }
+        # MT5 Market Execution requests must omit the price field.
+        market_execution = getattr(
+            self.api, "SYMBOL_TRADE_EXECUTION_MARKET", object()
+        )
+        if getattr(info, "trade_exemode", None) == market_execution:
+            request.pop("price", None)
         return self._send_once(
             request, expected_position_ticket=int(position.ticket)
         )
