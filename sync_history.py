@@ -16,7 +16,7 @@ MT5_PATH = os.environ.get(
     r"C:\Program Files\MetaTrader 5\terminal64.exe",
 )
 
-SYMBOL = "EURUSD"
+SYMBOL = os.environ.get("FOREX_SYMBOL", "EURUSD").strip()
 TIMEFRAME_NAME = "M15"
 TIMEFRAME = mt5.TIMEFRAME_M15
 HISTORY_COUNT = 5000
