@@ -1,3 +1,9 @@
+> **Research-only scope for this branch (2026-11-02):** This branch is for educational market-data collection and descriptive historical analysis only. It does not establish an institutional trading edge or provide validated trading signals. Do not use it to automate real-money trading. The legacy MT5 demo executor and runner described later in this README are not part of the research workflow; do not set `MT5_DEMO_ORDER_ENABLED` or run the runner with order submission enabled. Use only the read-only symbol diagnostic, history collector, data audits and descriptive feature analysis.
+
+> Spot FX is fragmented OTC; broker tick volume is not consolidated traded volume. Candle-derived BOS/FVG labels are geometric descriptions, not evidence of institutional orders. Read [INSTITUTIONAL_RESEARCH_LIMITATIONS.md](INSTITUTIONAL_RESEARCH_LIMITATIONS.md) before interpreting any output.
+
+---
+
 # Forex Research / MT5 Demo Lab
 
 This repository is an educational M15 Forex research project for the selected broker symbol (currently EURUSD#). It contains
